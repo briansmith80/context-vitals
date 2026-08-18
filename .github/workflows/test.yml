@@ -95,7 +95,14 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $null = [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path .\install.ps1), [ref]$null, [ref]$errors)
-          if ($errors) { $errors | ForEach-Object { Write-Host $_ }; exit 1 }
+          # [ref] cannot be applied to a variable that does not exist yet, and
+          # ParseFile needs a string path rather than a PathInfo object.
+          $tokens = $null
+          $errors = $null
+          $path = (Resolve-Path .\install.ps1).Path
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors)
+          if ($errors -and $errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            exit 1
+          }
           Write-Host 'ok install.ps1 parses'

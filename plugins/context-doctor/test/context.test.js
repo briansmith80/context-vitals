@@ -133,7 +133,7 @@ test('findLatestUsage sums the three input components', () => {
   assert.equal(got.output, 9);
 });
 
-test('findLatestUsage ignores sidechains — subagents have their own windows', () => {
+test('findLatestUsage ignores sidechains: subagents have their own windows', () => {
   const e = [
     assistant({ usage: usage(50000) }),
     assistant({ isSidechain: true, usage: usage(900000) }),
@@ -237,7 +237,7 @@ test('liveSlice falls back to preservedSegment.headUuid on older transcripts', (
 test('liveSlice under-counts rather than over-counts when metadata is absent', () => {
   const e = [userText('dropped'), boundary(null), assistant({ usage: usage(9000) })];
   const s = lib.liveSlice(e);
-  assert.equal(s.live.length, 1, 'only the post-boundary turn — better than counting dropped entries');
+  assert.equal(s.live.length, 1, 'only the post-boundary turn: better than counting dropped entries');
   assert.equal(s.compactions, 1);
 });
 
@@ -329,14 +329,14 @@ test('report: breakdown never exceeds the measured total after a compaction', ()
 
   const accounted = r.breakdown.reduce((s, b) => s + b.tokensEst, 0);
   assert.ok(accounted <= r.tokens, `attributed ${accounted} must not exceed measured ${r.tokens}`);
-  assert.ok(r.overheadEst > 0, 'residual must stay positive — the baseline is always in context');
+  assert.ok(r.overheadEst > 0, 'residual must stay positive: the baseline is always in context');
   assert.equal(r.compactions, 1);
   assert.equal(r.lastCompactTrigger, 'auto');
   assert.equal(r.droppedTokens, 980000);
 
   assert.ok(
     !r.topConsumers.some((c) => c.target.includes('huge.ts')),
-    'a discarded result is not a prune candidate — it is already gone',
+    'a discarded result is not a prune candidate: it is already gone',
   );
 });
 
