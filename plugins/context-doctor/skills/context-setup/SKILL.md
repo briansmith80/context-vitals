@@ -2,6 +2,7 @@
 name: context-setup
 description: Configure the auto-compact window and Context Doctor's own settings. Use when the user asks about /autocompact, wants auto-compaction to fire earlier, or wants to silence or tune the context nudges.
 disable-model-invocation: true
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/context-report.js"*), Read, Write, Edit
 ---
 
 # Context setup
@@ -13,11 +14,15 @@ Two separate things live here. Do only what was asked.
 ### 1. Read the current state
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/context-report.js" --format json
+node "${CLAUDE_PLUGIN_ROOT}/scripts/context-report.js" --data-dir "${CLAUDE_PLUGIN_DATA}" --format json
 ```
 
-Use `window` (the model's context limit), `autoCompactWindow`, and
-`autoCompactSource` from the output.
+Use `window` (the model's context limit), `windowConfident`, `autoCompactWindow`
+and `autoCompactSource` from the output.
+
+If `windowConfident` is `false`, the window was inferred from the model string
+and may be wrong — say so before recommending a value, and offer to set
+`contextWindow` (section B) instead of guessing on top of a guess.
 
 ### 2. Recommend a value
 
@@ -57,24 +62,38 @@ ignored while it is set.
 
 ## B — configure Context Doctor itself
 
-Config file: `${CLAUDE_PLUGIN_DATA}/config.json`. Create it if absent.
+The config file lives in the plugin's own data directory, which Claude Code
+creates per installed plugin. Get the real path from the same JSON output as
+above — it is where `--data-dir` pointed — or run:
+
+```bash
+node -e "console.log(require('path').join(process.env.CLAUDE_PLUGIN_DATA || require('os').homedir() + '/.claude/context-doctor', 'config.json'))"
+```
+
+For an installed plugin that is
+`~/.claude/plugins/data/context-doctor-context-doctor-marketplace/config.json`.
+The `~/.claude/context-doctor/` path is only used when the plugin is loaded
+without being installed (`claude --plugin-dir …`), which has no data directory
+of its own. Create the file if it is absent.
 
 ```json
 {
   "quiet": false,
+  "minZone": "watch",
   "contextWindow": null
 }
 ```
 
 | Key | Effect |
 | :--- | :--- |
-| `quiet` | `true` silences the per-turn Stop nudges entirely. `/context-check` and the PreCompact snapshot still work. |
+| `quiet` | `true` silences the per-turn Stop nudges entirely. `/context-check` and the PreCompact snapshot still work, and a compaction announcement is still delivered. |
+| `minZone` | Lowest zone that may nudge: `watch` (default), `act`, `degraded`, `critical`. Use `act` for "only tell me when there is something to do". |
 | `contextWindow` | Override the detected context window when detection is wrong. Accepts `1000000`, `"1M"`, `"400k"`. `null` means auto-detect. |
 
 Set `contextWindow` only if the user reports the window in `/context-check`
-disagrees with `/context`. Detection reads the model id from the transcript and
-the `model` key in settings; an LLM gateway alias or an unusual model string
-can defeat it.
+disagrees with `/context`, or if `windowConfident` was `false`. Detection reads
+the model id from the transcript and the `model` key in settings; an LLM gateway
+alias or an unusual model string can defeat it.
 
 Write the file with the `Write` tool and confirm the path back to the user.
 Changes take effect on the next turn — no restart needed.

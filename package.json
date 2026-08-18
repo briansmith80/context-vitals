@@ -1,6 +1,6 @@
 {
   "name": "context-doctor-marketplace",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Context window hygiene tooling for Claude Code",
   "license": "MIT",

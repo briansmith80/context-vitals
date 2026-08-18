@@ -1,0 +1,101 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # The plugin ships a POSIX installer and a PowerShell one, pins CRLF for
+    # .ps1 and LF for .sh, and does path arithmetic against ~/.claude/projects.
+    # None of that had ever run anywhere but the author's Windows machine.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['18.13', '20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Node version
+        run: node -v
+
+      - name: Test
+        run: npm test
+
+      - name: Report renders against the committed fixture
+        shell: bash
+        env:
+          CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000'
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW: '700000'
+        run: |
+          node plugins/context-doctor/scripts/context-report.js \
+            --transcript plugins/context-doctor/test/fixtures/showcase.jsonl
+          node plugins/context-doctor/scripts/context-report.js \
+            --transcript plugins/context-doctor/test/fixtures/showcase.jsonl \
+            --format json > /dev/null
+
+      - name: The fixture is reproducible from its generator
+        shell: bash
+        run: |
+          node plugins/context-doctor/test/fixtures/make-fixture.js
+          git diff --exit-code -- plugins/context-doctor/test/fixtures/showcase.jsonl \
+            || { echo "showcase.jsonl is out of date; re-run make-fixture.js and commit"; exit 1; }
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install.sh is valid POSIX sh
+        run: sh -n install.sh
+
+      - name: shellcheck install.sh
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y shellcheck
+          shellcheck --shell=sh install.sh
+
+      - name: Line endings are as .gitattributes promises
+        run: |
+          # A CRLF install.sh fails with "bad interpreter: /usr/bin/env sh^M"
+          # when piped to a shell, which is exactly how the README serves it.
+          if grep -qU $'\r' install.sh; then echo "install.sh must be LF"; exit 1; fi
+          if ! grep -qU $'\r' install.ps1; then echo "install.ps1 must be CRLF"; exit 1; fi
+
+      - name: Manifests are valid JSON
+        run: |
+          for f in .claude-plugin/marketplace.json plugins/context-doctor/.claude-plugin/plugin.json \
+                   plugins/context-doctor/hooks/hooks.json package.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
+            echo "ok $f"
+          done
+
+      - name: Plugin and package versions agree
+        run: |
+          node -e "
+            const a = require('./package.json').version;
+            const b = require('./plugins/context-doctor/.claude-plugin/plugin.json').version;
+            if (a !== b) { console.error('version drift: package.json ' + a + ' vs plugin.json ' + b); process.exit(1); }
+            console.log('ok version ' + a);
+          "
+
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.ps1 parses under Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path .\install.ps1), [ref]$null, [ref]$errors)
+          if ($errors) { $errors | ForEach-Object { Write-Host $_ }; exit 1 }
+          Write-Host 'ok install.ps1 parses'
