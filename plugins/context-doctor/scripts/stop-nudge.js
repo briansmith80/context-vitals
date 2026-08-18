@@ -5,7 +5,12 @@
 //
 // Emits a one-line warning ONLY when the session crosses into a worse zone
 // than it has already been warned about. Per-session state lives in the
-// plugin data dir, so a long session gets at most four nudges, ever.
+// plugin data dir, so one climb through the zones costs at most four nudges.
+//
+// It is also the plugin's only user-facing channel. Claude Code discards a
+// PreCompact hook's systemMessage, so pre-compact.js cannot speak for itself;
+// it leaves its announcement in the session state file and this hook delivers
+// it on the next turn.
 //
 // This runs on every single turn, so it must be fast and it must never fail
 // loudly: it reads only the tail of the transcript and always exits 0.
@@ -22,6 +27,9 @@ try {
 
 let hook;
 try { hook = JSON.parse(raw); } catch { silent(); }
+// JSON.parse('null') succeeds, and `null.agent_id` throws — which surfaced as a
+// stack trace on every turn rather than the silent exit this file promises.
+if (!hook || typeof hook !== 'object' || Array.isArray(hook)) silent();
 
 // Subagents have their own context windows; nudging about them is noise.
 if (hook.agent_id) silent();
@@ -30,56 +38,65 @@ let lib;
 try { lib = require('../lib/context'); } catch { silent(); }
 
 const cfg = lib.readPluginConfig();
-if (cfg.quiet === true) silent();
+
+// ── Session state ────────────────────────────────────────────
+
+/** A session id becomes a filename, so it may not contain path syntax. */
+function stateKey(id) {
+  const s = String(id || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_');
+  return s === '.' || s === '..' || !s ? 'unknown' : s;
+}
+
+const sessionsDir = path.join(lib.dataDir(), 'sessions');
+const stateFile = path.join(sessionsDir, stateKey(hook.session_id) + '.json');
+
+let state = null;
+try {
+  const v = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  if (v && typeof v === 'object' && !Array.isArray(v)) state = v;
+} catch { /* first turn of this session */ }
+
+const firstTurn = state === null;
+// First turn of a session is the one cheap moment to do housekeeping: these
+// files accumulate one per session forever otherwise.
+if (firstTurn) lib.pruneDir(sessionsDir, '.json', 50);
+if (firstTurn) state = {};
+
+// A compaction announcement left behind by pre-compact.js, which has no channel
+// of its own. Delivered even when `quiet` silences the zone nudges: the user
+// asked for less noise about context size, not to be kept unaware that an
+// unfocused compaction discarded their context.
+const pending = Array.isArray(state.pending) ? state.pending.filter((x) => typeof x === 'string') : [];
+
+function persist(extra) {
+  try {
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(stateFile, JSON.stringify(Object.assign({
+      warnedSeverity: state.warnedSeverity,
+      lastTokens: state.lastTokens,
+      lastZone: state.lastZone,
+      pending: [],
+    }, extra)));
+  } catch { /* state is best-effort */ }
+}
+
+function emit(lines) {
+  if (!lines.length) return;
+  process.stdout.write(JSON.stringify({ systemMessage: lines.join('\n') }));
+}
+
+// ── Reading ──────────────────────────────────────────────────
 
 let r;
 try {
   r = lib.report(hook.transcript_path, { deep: false });
-} catch { silent(); }
-if (!r || !r.ok) silent();
+} catch { r = null; }
 
-// ── Zone-crossing state ──────────────────────────────────────
-
-const sessionsDir = path.join(lib.dataDir(), 'sessions');
-const stateFile = path.join(sessionsDir, `${hook.session_id || 'unknown'}.json`);
-
-let state = null;
-try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch { /* first turn of this session */ }
-
-// First turn of a session is the one cheap moment to do housekeeping: these
-// files accumulate one per session forever otherwise.
-if (state === null) lib.pruneDir(sessionsDir, '.json', 50);
-if (state === null) state = {};
-
-const current = lib.SEVERITY[r.verdict.key];
-
-// Compaction shrinks the context; reset so a later re-entry warns again.
-if (r.tokens < (state.lastTokens || 0) * 0.6) {
-  state.warnedSeverity = -1;
-}
-
-const warned = typeof state.warnedSeverity === 'number' ? state.warnedSeverity : -1;
-
-function persist(sev) {
-  try {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify({
-      warnedSeverity: sev,
-      lastTokens: r.tokens,
-      lastZone: r.verdict.key,
-    }));
-  } catch { /* state is best-effort */ }
-}
-
-// Nothing worth saying: still green, or already warned at this level or worse.
-if (current <= 0 || current <= warned) {
-  persist(warned);
+if (!r || !r.ok) {
+  // Still hand over anything pre-compact.js left, then clear it.
+  if (pending.length) { persist({}); emit(pending); }
   process.exit(0);
 }
-
-persist(current);
-
-// ── Build the nudge ──────────────────────────────────────────
 
 const fmt = (n) => {
   const v = Math.abs(n);
@@ -88,32 +105,77 @@ const fmt = (n) => {
   return String(Math.round(n));
 };
 
-const ACTION = {
+const current = lib.SEVERITY[r.verdict.key];
+
+// Compaction shrinks the context; reset so a later re-entry warns again.
+if (r.tokens < (state.lastTokens || 0) * 0.6) state.warnedSeverity = -1;
+
+const warned = typeof state.warnedSeverity === 'number' ? state.warnedSeverity : -1;
+const quiet = cfg.quiet === true;
+
+// A floor for the nudges, so "only tell me at ACT and above" is expressible
+// without going fully silent.
+const minKey = typeof cfg.minZone === 'string' ? cfg.minZone.toLowerCase() : null;
+const floor = Object.prototype.hasOwnProperty.call(lib.SEVERITY, minKey) ? lib.SEVERITY[minKey] : 1;
+
+const shouldNudge = !quiet && current >= floor && current > warned;
+
+state.lastTokens = r.tokens;
+state.lastZone = r.verdict.key;
+persist({
+  warnedSeverity: shouldNudge ? current : warned,
+  lastTokens: r.tokens,
+  lastZone: r.verdict.key,
+});
+
+if (!shouldNudge) {
+  emit(pending);
+  process.exit(0);
+}
+
+// ── Build the nudge ──────────────────────────────────────────
+
+// Advice has to match the ladder that actually bound the verdict. The
+// degradation ladder is about quality at an absolute size; the pressure ladder
+// is about losing the choice of what survives. "Rebuild from notes" is right
+// for the first and wrong for the second.
+const ACTION_DEGRADATION = {
   watch: '/clear if you are between tasks. Otherwise carry on.',
   act: 'Compact deliberately now: /compact focus on <what matters>. Run /context-check for a drafted focus line.',
   degraded: '/clear and rebuild from notes if the task allows. Compaction here is salvage, not maintenance.',
+  critical: 'Past every published measurement. /clear and rebuild from notes — run /context-check first if you need the open threads.',
+};
+
+const ACTION_PRESSURE = {
+  watch: 'Over halfway to auto-compaction. Nothing to do yet.',
+  act: 'Compact deliberately now, while the choice of what survives is still yours: /compact focus on <what matters>. /context-check drafts it.',
+  degraded: 'Auto-compaction is imminent. Compact with a focus now, or it will summarise on its guess instead of yours.',
   critical: 'Auto-compaction will summarise on its guess, not yours. Act now: /context-check.',
 };
+
+const action = (r.verdict.driver === 'pressure' ? ACTION_PRESSURE : ACTION_DEGRADATION)[r.verdict.key];
 
 // Show the measure that actually drove the verdict. Quoting % of a 1M window
 // next to a CRITICAL label reads as a contradiction when the binding
 // constraint is a much smaller auto-compact window.
 const until = r.tokensUntilAutoCompact;
-const headline = r.verdict.driver === 'pressure'
-  ? `${r.verdict.emoji} Context ${fmt(r.tokens)} — ${r.verdict.label} · ` +
-    (until > 0
-      ? `~${fmt(until)} before auto-compaction (${r.pctOfAutoCompact}% of the way)`
-      : `auto-compaction imminent (${fmt(r.autoCompactFiresAt)} threshold passed)`)
-  : `${r.verdict.emoji} Context ${fmt(r.tokens)}/${fmt(r.window)} (${r.pctOfWindow}%) — ${r.verdict.label}`;
+let headline;
+if (r.verdict.driver === 'pressure') {
+  const runway = until > 0
+    // firesAt is an upper bound when no trigger is configured, so the runway is
+    // "at most" this — context-report.js says so and this used to state it flat.
+    ? (r.firesAtIsUpperBound
+      ? `at most ~${fmt(until)} before auto-compaction`
+      : `~${fmt(until)} before auto-compaction (${r.pctOfAutoCompact}% of the way)`)
+    : `auto-compaction imminent (${fmt(r.autoCompactFiresAt)} threshold passed)`;
+  headline = `${r.verdict.emoji} Context ${fmt(r.tokens)} — ${r.verdict.label} · ${runway}`;
+} else {
+  headline = `${r.verdict.emoji} Context ${fmt(r.tokens)}/${fmt(r.window)} (${r.pctOfWindow}%) — ${r.verdict.label}`;
+}
 
-const lines = [
+emit(pending.concat([
   headline,
   `   ${r.verdict.headline}`,
-  `   → ${ACTION[r.verdict.key] || 'Run /context-check.'}`,
-];
-
-process.stdout.write(JSON.stringify({
-  systemMessage: lines.join('\n'),
-  suppressOutput: true,
-}));
+  `   → ${action || 'Run /context-check.'}`,
+]));
 process.exit(0);

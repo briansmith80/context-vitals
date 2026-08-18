@@ -35,15 +35,28 @@ sub-16K if the task is fine-grained latent retrieval.**
 
 | Finding | Source |
 | :--- | :--- |
-| 40.4% of compaction transitions cause a degradation (1,009 Correct→Wrong against 1,486 Wrong→Correct across 12 fixed-interval summarisations) | *Self-Compacting LM Agents*, arXiv 2606.23525 |
+| Across 12 fixed-interval summarisations, 2,495 answers changed: 1,009 Correct→Wrong and 1,486 Wrong→Correct. So compaction is **bidirectional** — net positive in aggregate, but 40.4% of the answers it moved, it moved the wrong way | *Self-Compacting LM Agents*, arXiv 2606.23525 |
 | All compression methods scored below uncompressed on AppWorld; a compaction event adds +0.108 blocked/error actions at the very next step | *Reliable Context Compression*, arXiv 2608.06503 |
 | Compression "converts some tasks that were reliably solved into tasks that are only intermittently solved" | same |
 
-The shape of the correct policy falls out of two rows read together:
+Read the first row carefully: compaction is not a tax, it is a coin-flip
+weighted slightly in your favour. The argument against compacting routinely is
+not that it always loses — it is that it *randomises* facts you had already
+established, and you cannot choose which ones.
 
-- Never compacting: **38.9%** — the worst option.
-- Compacting on a timer: **41.4%** — barely better.
-- Compacting selectively, when the agent is already off-track: **52.9%** — dramatically better.
+**On timing.** From Table 3 of arXiv 2606.23525 — one 4B model
+(Qwen3-4B-Instruct-2507) on one benchmark (IMO-AnswerBench):
+
+- No compaction, 16K budget: **38.9%**
+- Fixed-interval summary, 44K budget: **41.4%**
+- **Oracle** — skip compaction whenever the current answer is already correct, 44K budget: **52.9%**
+
+The 52.9% arm is an **oracle**, not a policy: it decides by consulting the
+correct answer, which no user and no agent can do. It is an upper bound on what
+perfect timing could ever buy. What it establishes is a *ranking* — timing
+matters more than frequency — not an 11.5-point gain anyone can collect. Treat
+the gap between 41.4% and 52.9% as headroom, and note that a single small model
+on a single maths benchmark is thin evidence for a general claim.
 
 And on pruning versus summarising (GPT-5, 50 tasks, *Less Context, Better Agents*, arXiv 2606.10209):
 

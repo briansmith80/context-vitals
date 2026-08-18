@@ -9,7 +9,11 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Repo        = if ($env:CONTEXT_DOCTOR_REPO)  { $env:CONTEXT_DOCTOR_REPO }  else { 'briansmith80/context-doctor' }
+# An explicit https:// source, NOT the `owner/repo` shorthand. Claude Code clones
+# the shorthand over SSH by default and suppresses the interactive host-key and
+# passphrase prompts, so an HTTPS-only GitHub setup — the common one on Windows —
+# fails with "Permission denied (publickey)" on a public repo.
+$Repo        = if ($env:CONTEXT_DOCTOR_REPO)  { $env:CONTEXT_DOCTOR_REPO }  else { 'https://github.com/briansmith80/context-doctor' }
 $Scope       = if ($env:CONTEXT_DOCTOR_SCOPE) { $env:CONTEXT_DOCTOR_SCOPE } else { 'user' }
 $Marketplace = 'context-doctor-marketplace'
 $Plugin      = 'context-doctor'
@@ -18,6 +22,13 @@ function Fail($msg) { Write-Error "error: $msg"; exit 1 }
 
 # -- Preflight --------------------------------------------------
 
+if ($Scope -notin @('user', 'project', 'local')) {
+  Fail "CONTEXT_DOCTOR_SCOPE must be user, project or local (got '$Scope')."
+}
+if ($Repo.StartsWith('-')) {
+  Fail "CONTEXT_DOCTOR_REPO must not start with '-'."
+}
+
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
   Fail "the 'claude' CLI is not on PATH. Install Claude Code first: https://claude.com/claude-code"
 }
@@ -25,9 +36,14 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   Fail "node is not on PATH. Context Doctor's hooks are Node scripts and need it."
 }
 
-$nodeMajor = [int](node -p 'process.versions.node.split(".")[0]')
-if ($nodeMajor -lt 18) {
-  Fail "node 18.13 or newer is required (found $(node -v))."
+# package.json requires >=18.13, so check the minor too. Guarded because a node
+# that fails to run at all would otherwise cast $null to 0 and read as "too old"
+# with a confusing message.
+$nodeOk = $null
+try { $nodeOk = node -p 'const [a,b]=process.versions.node.split(".").map(Number); (a>18||(a===18&&b>=13))?"yes":"no"' } catch { $nodeOk = $null }
+if ($nodeOk -ne 'yes') {
+  $found = try { node -v } catch { 'none' }
+  Fail "node 18.13 or newer is required (found $found)."
 }
 
 # -- Install ----------------------------------------------------

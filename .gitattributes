@@ -6,3 +6,12 @@
 *.js   text eol=lf
 *.json text eol=lf
 *.md   text eol=lf
+*.yml  text eol=lf
+*.jsonl text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+LICENSE        text eol=lf
+
+# The showcase transcript is a byte-exact fixture: CI regenerates it and diffs,
+# so a line-ending rewrite would read as a spurious change.
+plugins/context-doctor/test/fixtures/showcase.jsonl -diff
