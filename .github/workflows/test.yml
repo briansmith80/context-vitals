@@ -106,3 +106,48 @@ jobs:
             exit 1
           }
           Write-Host 'ok install.ps1 parses'
+
+  version:
+    # A change under plugins/ only reaches an installed copy if the version in
+    # plugin.json moves. Claude Code caches plugins per version at
+    # ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/ and
+    # `claude plugin update` compares version strings, so a push that changes the
+    # plugin without bumping it leaves everyone on the old code while the update
+    # command reports "already at the latest version". Nothing else notices.
+    #
+    # The invariant: if the current version is already tagged, the shipped tree
+    # must be identical to that tag. Before the first tag exists there is nothing
+    # to compare against, so this job passes and stays out of the way.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, and enough history to diff against them
+
+      - name: A released version must not have moved on underneath its tag
+        shell: bash
+        run: |
+          version=$(node -p "require('./plugins/context-doctor/.claude-plugin/plugin.json').version")
+          tag="context-doctor--v$version"
+          echo "version in plugin.json: $version"
+
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "$tag does not exist, so $version has not been released - nothing to guard."
+            exit 0
+          fi
+
+          if git diff --quiet "$tag" HEAD -- plugins/; then
+            echo "plugins/ is identical to $tag - ok."
+            exit 0
+          fi
+
+          echo
+          echo "plugins/ has changed since $tag, but the version is still $version."
+          echo "Installed copies are cached per version, so this change would reach nobody:"
+          echo "  claude plugin update would report \"already at the latest version ($version)\"."
+          echo
+          echo "Bump version in plugins/context-doctor/.claude-plugin/plugin.json"
+          echo "and package.json (the lint job checks they agree), then tag the release."
+          echo
+          git diff --stat "$tag" HEAD -- plugins/
+          exit 1

@@ -35,7 +35,7 @@ runs even if the first fails. If you see two errors, fix the first one.
 /plugin install context-doctor@context-doctor-marketplace
 ```
 
-**With a preflight script** — checks for `claude` and a new enough `node`, then runs exactly the two commands above:
+**With a preflight script** — checks for `claude` and a new enough `node`, then runs the two commands above, or updates in place if the plugin is already installed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/briansmith80/context-doctor/main/install.sh | sh
@@ -68,6 +68,48 @@ Installing at user scope means the Stop hook runs in **every** session on the ma
 ```
 claude plugin uninstall context-doctor@context-doctor-marketplace
 ```
+
+## Updating
+
+```
+claude plugin update context-doctor@context-doctor-marketplace
+```
+
+Then restart Claude Code, or run `/reload-plugins`. From inside a session,
+`/plugin` does the same thing with a menu.
+
+Re-running either installer works too — both detect an existing install and
+update it rather than reinstalling.
+
+To stop doing this by hand, turn on auto-update for this marketplace in
+`/plugin`. That is a switch on your machine, per marketplace; nothing this repo
+publishes can set it for you.
+
+<details>
+<summary>Why reinstalling does nothing, and what "already at the latest version" means</summary>
+
+`claude plugin install` is a no-op once the plugin is present: it prints
+`already installed` and exits 0. So the install one-liner is not an update path
+— it reports success and changes nothing, which is worse than an error, because
+a tick invites no investigation. That is the whole reason the installers branch
+on what is already there. `claude plugin marketplace add` short-circuits the
+same way once its clone exists (`already on disk` — it fetches nothing), which
+is why the update path runs `claude plugin marketplace update` first rather than
+trusting `add` to refresh it.
+
+Updates are keyed on the `version` in `plugin.json`, and the cache keeps one
+directory per version:
+
+```
+~/.claude/plugins/cache/context-doctor-marketplace/context-doctor/1.1.0/
+```
+
+So if `claude plugin update` reports *already at the latest version* when you
+were expecting a change, the published version number has not moved — commits
+alone do not make an update visible. `claude plugin list` shows what you are
+actually running.
+
+</details>
 
 ---
 
@@ -347,11 +389,11 @@ node plugins/context-doctor/scripts/context-report.js --format json
 npm test        # node --test, built in — no dependencies, Node 18.13+
 ```
 
-65 tests, no dependencies. Three files, by what they protect:
+67 tests, no dependencies. Three files, by what they protect:
 
 - **`context.test.js`** pins the transcript-shape assumptions the whole plugin rests on — `isSidechain`, `messageId` / `message.id` (driven independently, so renaming either fails a test), `toolUseResult`, `compact_boundary`. None of these is documented or stable.
 - **`detection.test.js`** drives window detection, which is the denominator of every percentage, plus exact zone-boundary values, the sanitiser, and tail reading. It redirects `HOME` as well as `CLAUDE_PLUGIN_DATA`, because `detectWindow` reads `~/.claude/settings.json` and your real `model` key would otherwise decide the result.
-- **`scripts.test.js`** spawns the three scripts for real, with real stdin. This is where the risk lives: every failure path in the hooks is a deliberate `exit 0`, so without these a totally broken hook produces no signal at all. It asserts exit codes and empty stderr for malformed stdin (`''`, `null`, `123`, `[]`, prose), that the report never exceeds 72 rendered columns in any zone, and that a hostile transcript cannot inject an escape sequence or a fence-breaking backtick.
+- **`scripts.test.js`** spawns the three scripts for real, with real stdin, each child given an empty `HOME` so your own `autoCompactWindow` cannot move the zone boundaries the fixtures are pinned to. This is where the risk lives: every failure path in the hooks is a deliberate `exit 0`, so without these a totally broken hook produces no signal at all. It asserts exit codes and empty stderr for malformed stdin (`''`, `null`, `123`, `[]`, prose), that the report never exceeds 72 rendered columns in any zone, and that a hostile transcript cannot inject an escape sequence or a fence-breaking backtick.
 
 Data the suite touches is confined to a temp dir, so your real config cannot affect the results — or be affected by them.
 
@@ -359,6 +401,46 @@ The fixes in this suite were mutation-checked: each bug was deliberately
 re-introduced to confirm a test caught it. One deliberately is not caught —
 bounding the escalated tail read is a cost guard, not a behaviour change, since
 `loadEntries` falls back to a full read either way.
+
+## Releasing
+
+Two facts shape this. Users install from the default branch — the marketplace
+clone Claude Code keeps is a shallow clone of `main`, with no tags in it — so
+**pushing to `main` is what ships**. And installed plugins are cached per version
+at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`, with `claude
+plugin update` comparing version strings, so **a push that does not move the
+version reaches nobody**: every installed copy stays where it is while the update
+command reports *already at the latest version* and exits 0.
+
+A release is therefore a bump, then a push, then a tag recording what went out:
+
+```bash
+# 1. Bump the version in both manifests — the lint job fails if they disagree.
+#      plugins/context-doctor/.claude-plugin/plugin.json
+#      package.json
+
+# 2. Commit and push. This is the step that actually ships.
+git push
+
+# 3. Record it: validates plugin.json against the marketplace entry, refuses on
+#    a dirty working tree, and creates context-doctor--v<version>.
+claude plugin tag --push plugins/context-doctor
+```
+
+Rehearse the last step with `claude plugin tag --dry-run plugins/context-doctor`,
+which prints the exact `git tag` and `git push` it would run. It has to be given
+the plugin directory rather than the repo root: `plugin.json` lives under
+`plugins/context-doctor` while `marketplace.json` is at the top, and the command
+looks for the former.
+
+The tags deliver nothing — no install path reads them. They exist so that
+`git diff context-doctor--v1.1.0 HEAD -- plugins/` can answer *what has changed
+since the last release*, which is exactly what the **version** CI job asks on
+every push: if the version in `plugin.json` is already tagged and `plugins/` has
+moved since, the build fails and says to bump. Before the first tag exists it is
+a no-op, and edits to the README or the installers never trip it, because neither
+is served from the plugin cache — those come from `raw.githubusercontent.com` at
+install time, so they are live on `main` the moment they land.
 
 ---
 

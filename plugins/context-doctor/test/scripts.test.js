@@ -29,6 +29,16 @@ function tmpdir(tag) {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'ctxdoc-' + tag + '-'));
 }
 
+// A home directory that looks real but is unconfigured. These tests spawn the
+// scripts as child processes, and lib/context.js resolves ~/.claude/settings.json
+// through os.homedir(), so without this the developer's own autoCompactWindow
+// decides where the zone boundaries fall: a 400K setting moved the trigger to
+// 367K and read three ACT fixtures as CRITICAL. CI never caught it, because a
+// runner has no settings.json to read at all. detection.test.js redirects
+// HOME for the same reason; it just does it in-process.
+const EMPTY_HOME = tmpdir('home-empty');
+fs.mkdirSync(path.join(EMPTY_HOME, '.claude'), { recursive: true });
+
 // ── Fixtures ─────────────────────────────────────────────────
 
 const T = (n) => 'x'.repeat(Math.max(0, n * 4));
@@ -62,6 +72,8 @@ function run(script, opts) {
     input: o.input === undefined ? '' : o.input,
     encoding: 'utf8',
     env: Object.assign({}, process.env, {
+      HOME: EMPTY_HOME,
+      USERPROFILE: EMPTY_HOME,
       CLAUDE_PLUGIN_DATA: o.data || tmpdir('data'),
       CLAUDE_CODE_SESSION_ID: '',
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: o.window || '1000000',
