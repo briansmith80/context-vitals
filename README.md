@@ -11,7 +11,7 @@ The operating principle it encodes: *don't manage a full context window — avoi
 One line:
 
 ```
-claude plugin marketplace add briansmith80/claude-code-context; claude plugin install context-doctor@context-doctor-marketplace --yes
+claude plugin marketplace add briansmith80/context-doctor; claude plugin install context-doctor@context-doctor-marketplace --yes
 ```
 
 `;` chains commands in bash, zsh, and PowerShell alike, so that line is safe to paste in any of them. Then restart Claude Code or run `/reload-plugins` to activate the hooks.
@@ -22,18 +22,18 @@ claude plugin marketplace add briansmith80/claude-code-context; claude plugin in
 **From inside Claude Code:**
 
 ```
-/plugin marketplace add briansmith80/claude-code-context
+/plugin marketplace add briansmith80/context-doctor
 /plugin install context-doctor@context-doctor-marketplace
 ```
 
 **With a preflight script** — checks for `claude` and a new enough `node`, then runs exactly the two commands above:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/briansmith80/claude-code-context/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/briansmith80/context-doctor/main/install.sh | sh
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/briansmith80/claude-code-context/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/briansmith80/context-doctor/main/install.ps1 | iex
 ```
 
 Piping a script into a shell is worth hesitating over for anything that installs event hooks. Both scripts are short and do nothing the one-liner does not — read them first, or skip them.

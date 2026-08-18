@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Repo        = if ($env:CONTEXT_DOCTOR_REPO)  { $env:CONTEXT_DOCTOR_REPO }  else { 'briansmith80/claude-code-context' }
+$Repo        = if ($env:CONTEXT_DOCTOR_REPO)  { $env:CONTEXT_DOCTOR_REPO }  else { 'briansmith80/context-doctor' }
 $Scope       = if ($env:CONTEXT_DOCTOR_SCOPE) { $env:CONTEXT_DOCTOR_SCOPE } else { 'user' }
 $Marketplace = 'context-doctor-marketplace'
 $Plugin      = 'context-doctor'

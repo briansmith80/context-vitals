@@ -10,7 +10,7 @@
 
 set -eu
 
-REPO="${CONTEXT_DOCTOR_REPO:-briansmith80/claude-code-context}"
+REPO="${CONTEXT_DOCTOR_REPO:-briansmith80/context-doctor}"
 MARKETPLACE="context-doctor-marketplace"
 PLUGIN="context-doctor"
 SCOPE="${CONTEXT_DOCTOR_SCOPE:-user}"
