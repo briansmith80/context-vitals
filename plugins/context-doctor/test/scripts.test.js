@@ -99,7 +99,26 @@ test('npm test names every test file in the directory', () => {
   const present = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js')).sort();
   assert.ok(present.length >= 3, 'expected at least the three suites, found ' + present.join(', '));
   for (const f of present) {
-    assert.ok(script.includes(f), f + ' exists but `npm test` does not run it — add it to package.json');
+    assert.ok(script.includes(f), f + ' exists but `npm test` does not run it: add it to package.json');
+  }
+});
+
+test('test names are ASCII, because a TAP consumer has to read them', () => {
+  // Node 18.13's TAP lexer aborts the whole file with
+  // "Unexpected character: <em dash> at line 1, column 0" when a test name
+  // carries one. That went unnoticed for the life of the repo because the glob
+  // in `npm test` meant no test ever ran on Node 18 or 20. Test names are
+  // machine-consumed; keep them plain. Bodies may hold anything the case needs.
+  const files = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js')).sort();
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    const names = [...src.matchAll(/^test\(\s*(['"])([\s\S]*?)\1/gm)].map((m) => m[2]);
+    assert.ok(names.length > 0, f + ': found no test names to check');
+    for (const name of names) {
+      const bad = [...name].find((ch) => ch.codePointAt(0) > 127);
+      assert.ok(!bad, f + ': test name has non-ASCII '
+        + (bad ? 'U+' + bad.codePointAt(0).toString(16).toUpperCase() : '') + ' -- ' + name);
+    }
   }
 });
 

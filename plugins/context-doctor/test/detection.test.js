@@ -174,7 +174,11 @@ test('safe() strips control characters and neutralises fence-breaking backticks'
 test('safe() caps length and is applied to tool targets at the boundary', () => {
   assert.strictEqual(lib.safe('y'.repeat(300), 40).length, 40);
   assert.ok(lib.safe('y'.repeat(300), 40).endsWith('…'), 'truncation is visible');
-  assert.strictEqual(lib.targetOf({ command: 'grep ```x``` .' }), 'grep ’’’x’’’ .');
+  // safe() swaps each backtick for U+2019, length-neutrally, so three backticks
+  // can never close the fence the skill reproduces the report inside.
+  const RSQ = String.fromCharCode(0x2019);
+  assert.strictEqual(lib.targetOf({ command: 'grep ```x``` .' }),
+    'grep ' + RSQ.repeat(3) + 'x' + RSQ.repeat(3) + ' .');
   assert.strictEqual(lib.targetOf(null), '');
   assert.strictEqual(lib.targetOf('not an object'), '');
 });
