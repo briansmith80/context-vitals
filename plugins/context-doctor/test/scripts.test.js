@@ -84,6 +84,25 @@ function width(s) {
 
 const nudgeOut = (res) => (res.stdout && res.stdout.trim() ? JSON.parse(res.stdout) : null);
 
+// ── The suite runs what it claims to run ─────────────────────
+
+test('npm test names every test file in the directory', () => {
+  // `node --test` only accepts glob patterns from Node 21, so the script lists
+  // its files explicitly: a quoted glob silently matched nothing on Node 18 and
+  // 20 ("Could not find …"), meaning the suite never ran on two of the three
+  // versions `engines` claims to support. An explicit list trades that failure
+  // for a quieter one — a new test file nobody registered — so assert against it.
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8'));
+  const script = pkg.scripts.test;
+  assert.ok(!script.includes('*'), 'no globs: node --test does not expand them before v21, and cmd.exe never does');
+
+  const present = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js')).sort();
+  assert.ok(present.length >= 3, 'expected at least the three suites, found ' + present.join(', '));
+  for (const f of present) {
+    assert.ok(script.includes(f), f + ' exists but `npm test` does not run it — add it to package.json');
+  }
+});
+
 // ── context-report.js ────────────────────────────────────────
 
 test('context-report: every malformed input still exits 0 with a clean message', () => {

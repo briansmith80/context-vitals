@@ -205,13 +205,13 @@ the model string. Reporting it anyway used to produce a confident `CRITICAL` at
 180K that flipped to `WATCH` one token later, when the self-correcting window
 floor fired.
 
-| Degradation zone (absolute tokens) | | Pressure zone (% of auto-compact point) |
-| :--- | :--- | :--- |
-| 🟢 Optimal — 0–150K | | 🟢 under 50% |
-| 🟡 Watch — 150–350K | | 🟡 50–75% |
-| 🟠 Act — 350–600K | | 🟠 75–90% |
-| 🔴 Degraded — 600–850K | | 🔴 90–100% |
-| ⛔ Critical — 850K+ | | ⛔ 100%+ |
+| Degradation zone (absolute tokens) |  | Pressure zone (% of auto-compact point) |
+| :--------------------------------- | :- | :-------------------------------------- |
+| 🟢 Optimal — 0–150K              |  | 🟢 under 50%                            |
+| 🟡 Watch — 150–350K              |  | 🟡 50–75%                              |
+| 🟠 Act — 350–600K                |  | 🟠 75–90%                              |
+| 🔴 Degraded — 600–850K           |  | 🔴 90–100%                             |
+| ⛔ Critical — 850K+               |  | ⛔ 100%+                                |
 
 `/context-check` narrows further by task class, because thresholds depend on the precision the work needs — precise retrieval fails at 50–100K, broad summarisation holds to 350–500K.
 
@@ -264,11 +264,11 @@ directory of its own. `/context-setup` writes the right file for you; the
 }
 ```
 
-| Key | Effect |
-| :--- | :--- |
-| `quiet` | `true` silences the Stop-hook zone nudges. `/context-check`, snapshots, and post-compaction announcements still work. |
-| `minZone` | Lowest zone allowed to nudge: `watch` (default), `act`, `degraded`, `critical`. `act` means "only when there is something to do". |
-| `contextWindow` | Override window detection. Accepts `1000000`, `"1M"`, `"400k"`. `null` = auto-detect. Set this if `windowConfident` is `false` in the JSON output. |
+| Key               | Effect                                                                                                                                                        |
+| :---------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `quiet`         | `true` silences the Stop-hook zone nudges. `/context-check`, snapshots, and post-compaction announcements still work.                                     |
+| `minZone`       | Lowest zone allowed to nudge:`watch` (default), `act`, `degraded`, `critical`. `act` means "only when there is something to do".                    |
+| `contextWindow` | Override window detection. Accepts`1000000`, `"1M"`, `"400k"`. `null` = auto-detect. Set this if `windowConfident` is `false` in the JSON output. |
 
 ---
 
@@ -366,10 +366,10 @@ bounding the escalated tail read is a cost guard, not a behaviour change, since
 
 Both data directories are pruned automatically, so neither grows without bound:
 
-| Directory | Kept |
-| :--- | :--- |
-| `sessions/` | newest 50 state files, pruned on the first turn of a new session |
-| `compactions/` | newest 30 snapshots, pruned before writing a new one |
+| Directory        | Kept                                                             |
+| :--------------- | :--------------------------------------------------------------- |
+| `sessions/`    | newest 50 state files, pruned on the first turn of a new session |
+| `compactions/` | newest 30 snapshots, pruned before writing a new one             |
 
 ## License
 

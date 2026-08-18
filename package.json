@@ -9,7 +9,7 @@
     "node": ">=18.13.0"
   },
   "scripts": {
-    "test": "node --test \"plugins/context-doctor/test/*.test.js\"",
+    "test": "node --test plugins/context-doctor/test/context.test.js plugins/context-doctor/test/detection.test.js plugins/context-doctor/test/scripts.test.js",
     "report": "node plugins/context-doctor/scripts/context-report.js"
   }
 }
