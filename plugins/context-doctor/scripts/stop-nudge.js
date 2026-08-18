@@ -16,7 +16,6 @@
 // loudly: it reads only the tail of the transcript and always exits 0.
 
 const fs = require('fs');
-const path = require('path');
 
 function silent() { process.exit(0); }
 
@@ -40,44 +39,32 @@ try { lib = require('../lib/context'); } catch { silent(); }
 const cfg = lib.readPluginConfig();
 
 // ── Session state ────────────────────────────────────────────
+//
+// The file layout, the key sanitising and the pending queue all live in
+// lib/context.js, because pre-compact.js writes into the same file and the two
+// have to agree on which file that is.
 
-/** A session id becomes a filename, so it may not contain path syntax. */
-function stateKey(id) {
-  const s = String(id || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_');
-  return s === '.' || s === '..' || !s ? 'unknown' : s;
-}
-
-const sessionsDir = path.join(lib.dataDir(), 'sessions');
-const stateFile = path.join(sessionsDir, stateKey(hook.session_id) + '.json');
-
-let state = null;
-try {
-  const v = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-  if (v && typeof v === 'object' && !Array.isArray(v)) state = v;
-} catch { /* first turn of this session */ }
+let state = lib.readSessionState(hook.session_id);
 
 const firstTurn = state === null;
 // First turn of a session is the one cheap moment to do housekeeping: these
 // files accumulate one per session forever otherwise.
-if (firstTurn) lib.pruneDir(sessionsDir, '.json', 50);
+if (firstTurn) lib.pruneDir(lib.sessionsDir(), '.json', 50);
 if (firstTurn) state = {};
 
 // A compaction announcement left behind by pre-compact.js, which has no channel
 // of its own. Delivered even when `quiet` silences the zone nudges: the user
 // asked for less noise about context size, not to be kept unaware that an
 // unfocused compaction discarded their context.
-const pending = Array.isArray(state.pending) ? state.pending.filter((x) => typeof x === 'string') : [];
+const pending = lib.pendingOf(state);
 
 function persist(extra) {
-  try {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify(Object.assign({
-      warnedSeverity: state.warnedSeverity,
-      lastTokens: state.lastTokens,
-      lastZone: state.lastZone,
-      pending: [],
-    }, extra)));
-  } catch { /* state is best-effort */ }
+  lib.writeSessionState(hook.session_id, Object.assign({
+    warnedSeverity: state.warnedSeverity,
+    lastTokens: state.lastTokens,
+    lastZone: state.lastZone,
+    pending: [],
+  }, extra));
 }
 
 function emit(lines) {
@@ -98,12 +85,7 @@ if (!r || !r.ok) {
   process.exit(0);
 }
 
-const fmt = (n) => {
-  const v = Math.abs(n);
-  if (v >= 1000000) return (n / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M';
-  if (v >= 1000) return Math.round(n / 1000) + 'K';
-  return String(Math.round(n));
-};
+const fmt = lib.fmt;
 
 const current = lib.SEVERITY[r.verdict.key];
 
@@ -155,6 +137,10 @@ const ACTION_PRESSURE = {
 
 const action = (r.verdict.driver === 'pressure' ? ACTION_PRESSURE : ACTION_DEGRADATION)[r.verdict.key];
 
+// The name goes in the message because it cannot go in the prefix: Claude Code
+// labels hook output by event, so this surfaces as "Stop says: ...", and no
+// documented field in hooks.json or the hook's own output changes that. A user
+// with several Stop hooks otherwise has no way to tell whose message this is.
 // Show the measure that actually drove the verdict. Quoting % of a 1M window
 // next to a CRITICAL label reads as a contradiction when the binding
 // constraint is a much smaller auto-compact window.
@@ -168,9 +154,9 @@ if (r.verdict.driver === 'pressure') {
       ? `at most ~${fmt(until)} before auto-compaction`
       : `~${fmt(until)} before auto-compaction (${r.pctOfAutoCompact}% of the way)`)
     : `auto-compaction imminent (${fmt(r.autoCompactFiresAt)} threshold passed)`;
-  headline = `${r.verdict.emoji} Context ${fmt(r.tokens)} — ${r.verdict.label} · ${runway}`;
+  headline = `${r.verdict.emoji} Context Doctor · ${fmt(r.tokens)} — ${r.verdict.label} · ${runway}`;
 } else {
-  headline = `${r.verdict.emoji} Context ${fmt(r.tokens)}/${fmt(r.window)} (${r.pctOfWindow}%) — ${r.verdict.label}`;
+  headline = `${r.verdict.emoji} Context Doctor · ${fmt(r.tokens)}/${fmt(r.window)} (${r.pctOfWindow}%) — ${r.verdict.label}`;
 }
 
 emit(pending.concat([

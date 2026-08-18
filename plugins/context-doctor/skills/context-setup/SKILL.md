@@ -97,3 +97,9 @@ alias or an unusual model string can defeat it.
 
 Write the file with the `Write` tool and confirm the path back to the user.
 Changes take effect on the next turn — no restart needed.
+
+Every key fails closed and `/context-check` reports anything it ignored, so if
+the user says a setting did nothing, run the report and read the `config` rows
+in `METHOD` before changing anything else. The usual causes are a quoted
+boolean (`"quiet": "true"`), a case-mismatched key (`minzone`), and a config
+file with a trailing comma, which reverts every setting at once.

@@ -96,6 +96,21 @@ function safe(value, maxLen) {
   return s;
 }
 
+/**
+ * Compact token count for a one-line message: 1.2M, 412K, 368.
+ *
+ * Both hooks rendered this identically and separately. context-report.js keeps
+ * its own fmtT/fmtTP: those round negatives away from zero and carry a decimal
+ * for the two figures the reader is meant to trust, which is a renderer
+ * decision, not this one.
+ */
+function fmt(n) {
+  const v = Math.abs(n);
+  if (v >= 1000000) return (n / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M';
+  if (v >= 1000) return Math.round(n / 1000) + 'K';
+  return String(Math.round(n));
+}
+
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
@@ -208,6 +223,75 @@ function userSettings() {
   return readJsonObject(path.join(os.homedir(), '.claude', 'settings.json')) || {};
 }
 
+/** Render a rejected config value for a message, without trusting it. */
+function describeValue(v) {
+  if (v === null) return 'null';
+  if (typeof v === 'string') return '"' + safe(v, 30) + '"';
+  if (Array.isArray(v)) return 'a list';
+  if (typeof v === 'object') return 'an object';
+  return safe(String(v), 30);
+}
+
+const CONFIG_KEYS = ['quiet', 'minZone', 'contextWindow'];
+
+/**
+ * Describe anything in config.json that is going to be ignored.
+ *
+ * Every setting here fails closed, which is the right behaviour and the wrong
+ * silence: an unparseable `contextWindow` falls through to detection, an
+ * unknown `minZone` falls back to watch, `quiet` counts only as a real boolean
+ * (so `"quiet": "true"` does nothing), and a config file with a missing comma
+ * reverts every setting at once. In all four cases the user is left believing a
+ * setting is in force. The report says so instead of guessing on their behalf.
+ *
+ * Returns [] when there is no config file — the overwhelmingly common case, and
+ * not a problem.
+ */
+function configIssues() {
+  const file = path.join(dataDir(), 'config.json');
+  try {
+    if (!fs.statSync(file).isFile()) return [];
+  } catch {
+    return []; // absent: defaults apply, nothing to report
+  }
+
+  const cfg = readJsonObject(file);
+  if (!cfg) {
+    return ['config.json is not a usable JSON object, so every setting in it is being ignored'];
+  }
+
+  const out = [];
+  const has = (k) => Object.prototype.hasOwnProperty.call(cfg, k);
+
+  if (has('quiet') && typeof cfg.quiet !== 'boolean') {
+    out.push('quiet: ' + describeValue(cfg.quiet)
+      + ' ignored, expected true or false unquoted, so the nudges are still on');
+  }
+
+  if (has('minZone') && cfg.minZone !== null) {
+    const k = typeof cfg.minZone === 'string' ? cfg.minZone.toLowerCase() : null;
+    if (!k || !Object.prototype.hasOwnProperty.call(SEVERITY, k)) {
+      out.push('minZone: ' + describeValue(cfg.minZone)
+        + ' ignored, expected watch, act, degraded or critical, so the floor is watch');
+    }
+  }
+
+  if (has('contextWindow') && cfg.contextWindow !== null) {
+    if (!parseWindow(cfg.contextWindow)) {
+      out.push('contextWindow: ' + describeValue(cfg.contextWindow)
+        + ' ignored, expected 1000000, "1M" or "400k", so the window is being detected');
+    }
+  }
+
+  for (const k of Object.keys(cfg)) {
+    if (!CONFIG_KEYS.includes(k)) {
+      out.push('unknown key ' + describeValue(k) + ' has no effect');
+    }
+  }
+
+  return out;
+}
+
 /**
  * Keep the newest `keep` files matching `ext` in `dir`, delete the rest.
  *
@@ -233,6 +317,54 @@ function pruneDir(dir, ext, keep) {
   } catch {
     return 0; // directory absent — nothing to prune
   }
+}
+
+// ── Session state ────────────────────────────────────────────
+//
+// stop-nudge.js tracks the worst zone it has already warned about; pre-compact.js
+// queues an announcement into the same file, because Claude Code discards a
+// PreCompact hook's systemMessage and Stop's is the only channel out. Both used
+// to build the path themselves, and they did it differently: one mapped a
+// session id of "." or ".." onto "unknown" and the other did not, so the two
+// could address different files and a queued announcement would never be read.
+// One implementation, used by both.
+
+/** A session id becomes a filename, so it may not contain path syntax. */
+function sessionKey(id) {
+  const s = String(id || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_');
+  return s === '.' || s === '..' || !s ? 'unknown' : s;
+}
+
+function sessionsDir() {
+  return path.join(dataDir(), 'sessions');
+}
+
+function sessionStateFile(id) {
+  return path.join(sessionsDir(), sessionKey(id) + '.json');
+}
+
+/** The stored state, or null when this session has none yet — which is the
+ *  signal stop-nudge.js uses to do its once-per-session housekeeping. */
+function readSessionState(id) {
+  return readJsonObject(sessionStateFile(id));
+}
+
+/** Best-effort write. State is a convenience; losing it costs one extra nudge. */
+function writeSessionState(id, state) {
+  try {
+    const file = sessionStateFile(id);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(state));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The queued announcements pre-compact.js left for the next Stop hook. */
+function pendingOf(state) {
+  const p = state && state.pending;
+  return Array.isArray(p) ? p.filter((x) => typeof x === 'string') : [];
 }
 
 // ── Window detection ─────────────────────────────────────────
@@ -693,7 +825,9 @@ function zoneOut(z) {
 }
 
 module.exports = {
-  report, parseWindow, dataDir, setDataDir, readPluginConfig, userSettings, pruneDir, safe,
+  report, parseWindow, dataDir, setDataDir, readPluginConfig, userSettings, pruneDir, safe, fmt,
+  configIssues,
+  sessionKey, sessionsDir, sessionStateFile, readSessionState, writeSessionState, pendingOf,
   DEGRADATION_ZONES, PRESSURE_ZONES, SEVERITY, AUTOCOMPACT_HEADROOM, TAIL_BYTES, MAX_TAIL_BYTES,
   // Exported for tests: pure functions over parsed transcript entries.
   liveSlice, analyse, parseJsonl, classify, findLatestUsage, findLatestModel,

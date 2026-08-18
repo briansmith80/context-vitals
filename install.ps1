@@ -36,17 +36,17 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   Fail "node is not on PATH. Context Doctor's hooks are Node scripts and need it."
 }
 
-# package.json requires >=18.13, so check the minor too. The version test runs as
+# package.json requires >=20, so the major alone decides it. The version test runs as
 # an exit code rather than printed text for two reasons: Windows PowerShell 5.1
 # strips the inner double quotes out of a native command's arguments, so a JS
 # snippet containing "." reaches node as split(.) and dies with a syntax error
 # (which then reads as "your node is too old" while naming a version that is not);
 # and node -p colourizes a bare number with ANSI escapes, so the output would not
 # compare equal to 1 either. Nothing here is quoted, and nothing is parsed.
-node -e 'const v=process.versions.node.split(/[.]/).map(Number); process.exit((v[0]>18||(v[0]===18&&v[1]>=13))?0:1)'
+node -e 'const v=process.versions.node.split(/[.]/).map(Number); process.exit(v[0] >= 20 ? 0 : 1)'
 if ($LASTEXITCODE -ne 0) {
   $found = try { node -v } catch { 'none' }
-  Fail "node 18.13 or newer is required (found $found)."
+  Fail "node 20 or newer is required (found $found)."
 }
 
 # -- Install or update ------------------------------------------

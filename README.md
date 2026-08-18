@@ -61,7 +61,7 @@ claude --plugin-dir /path/to/your/clone/plugins/context-doctor
 
 </details>
 
-Requires Claude Code and `node` 18.13+ on `PATH`. No `npm install` — the plugin has zero dependencies and the tests use Node's built-in runner.
+Requires Claude Code and `node` 20+ on `PATH`. No `npm install` — the plugin has zero dependencies and the tests use Node's built-in runner.
 
 Installing at user scope means the Stop hook runs in **every** session on the machine, not just one project. To undo:
 
@@ -204,10 +204,15 @@ degradation-driven warning, "compact while the choice is still yours" for a
 pressure-driven one.
 
 ```
-🟠 Context 412K/1M (41.2%) — ACT
+Stop says: 🟠 Context Doctor · 412K/1M (41.2%) — ACT
    Attention meaningfully diluted. Expect missed details, re-reads, drift from earlier instructions.
    → Compact deliberately now: /compact focus on <what matters>. Run /context-check for a drafted focus line.
 ```
+
+`Stop says:` is Claude Code’s own label — it names hook output by event, and no
+field in `hooks.json` or the hook’s output changes it — so the plugin puts its
+name in the line it does control. With several Stop hooks installed you would
+otherwise have no way to tell whose message you are reading.
 
 ### PreCompact snapshots — recovery when it goes lossy
 
@@ -312,6 +317,15 @@ directory of its own. `/context-setup` writes the right file for you; the
 | `minZone`       | Lowest zone allowed to nudge:`watch` (default), `act`, `degraded`, `critical`. `act` means "only when there is something to do".                    |
 | `contextWindow` | Override window detection. Accepts`1000000`, `"1M"`, `"400k"`. `null` = auto-detect. Set this if `windowConfident` is `false` in the JSON output. |
 
+Every key here fails closed, and **`/context-check` names anything it had to
+ignore**. A quoted `"quiet": "true"` is not a boolean and silences nothing; a
+misspelled `minZone` falls back to `watch`; an unparseable `contextWindow` falls
+through to detection; a missing comma reverts all three at once. Each of those
+used to be silent, which left you believing a setting was in force. Now the
+`METHOD` block leads with a `config` row saying what was rejected and what is in
+force instead — including on the no-reading path, where a broken config file is
+the likeliest reason there is nothing to show.
+
 ---
 
 ## How it measures
@@ -386,10 +400,10 @@ node plugins/context-doctor/scripts/context-report.js --format json
 ## Tests
 
 ```bash
-npm test        # node --test, built in — no dependencies, Node 18.13+
+npm test        # node --test, built in — no dependencies, Node 20+
 ```
 
-67 tests, no dependencies. Three files, by what they protect:
+82 tests, no dependencies. Three files, by what they protect:
 
 - **`context.test.js`** pins the transcript-shape assumptions the whole plugin rests on — `isSidechain`, `messageId` / `message.id` (driven independently, so renaming either fails a test), `toolUseResult`, `compact_boundary`. None of these is documented or stable.
 - **`detection.test.js`** drives window detection, which is the denominator of every percentage, plus exact zone-boundary values, the sanitiser, and tail reading. It redirects `HOME` as well as `CLAUDE_PLUGIN_DATA`, because `detectWindow` reads `~/.claude/settings.json` and your real `model` key would otherwise decide the result.
@@ -415,17 +429,26 @@ command reports *already at the latest version* and exits 0.
 A release is therefore a bump, then a push, then a tag recording what went out:
 
 ```bash
-# 1. Bump the version in both manifests — the lint job fails if they disagree.
-#      plugins/context-doctor/.claude-plugin/plugin.json
-#      package.json
+# 1. Bump. Writes both manifests and opens a CHANGELOG entry to fill in.
+npm run bump 1.2.0
 
-# 2. Commit and push. This is the step that actually ships.
+# 2. Fill in the changelog entry, then check the invariant the lint job checks:
+#    the manifests agree and this version is documented.
+npm run release:check
+
+# 3. Commit and push. This is the step that actually ships.
 git push
 
-# 3. Record it: validates plugin.json against the marketplace entry, refuses on
+# 4. Record it: validates plugin.json against the marketplace entry, refuses on
 #    a dirty working tree, and creates context-doctor--v<version>.
 claude plugin tag --push plugins/context-doctor
 ```
+
+Step 1 exists because a release is gated on one string in three files, and the CI
+jobs that catch a half-done bump only run after the push. Step 2 is not optional
+politeness: `claude plugin update` hands someone new event hooks, and
+[`CHANGELOG.md`](CHANGELOG.md) is the only record of what they just got, so the
+**lint** job fails the build when the shipping version has no entry.
 
 Rehearse the last step with `claude plugin tag --dry-run plugins/context-doctor`,
 which prints the exact `git tag` and `git push` it would run. It has to be given

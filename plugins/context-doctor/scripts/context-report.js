@@ -510,6 +510,10 @@ function renderText(r, source) {
   section(push, 'METHOD', 'window, trigger, compaction history');
 
   const method = [];
+  // Config problems lead: a rejected contextWindow is the explanation for the
+  // window row directly below, and a setting that silently did nothing is worth
+  // more to the reader than any provenance line under it.
+  for (const issue of (r.configIssues || [])) method.push(['config', '', issue]);
   method.push(['window', fmtT(r.window), r.windowSource]);
   method.push(['auto-compact', fmtT(r.autoCompactWindow), r.autoCompactSource]);
 
@@ -579,6 +583,15 @@ try {
   r = { ok: false, reason: String((err && err.message) || err) };
 }
 
+// Settings that will be ignored, whether or not there is a reading to show.
+// Every one of them fails closed, so without this the user is left believing a
+// setting is in force: `"quiet": "true"` silences nothing, a misspelled minZone
+// falls back to watch, and a config file missing a comma reverts all three.
+try {
+  const issues = lib.configIssues();
+  if (issues.length) r.configIssues = issues;
+} catch { /* never let config validation break the report */ }
+
 if (format === 'json') {
   process.stdout.write(JSON.stringify(r, null, 2) + '\n');
 } else if (!r.ok) {
@@ -587,6 +600,14 @@ if (format === 'json') {
   msg.push('');
   for (const line of wrap('Run /context for Claude Code\u2019s own built-in breakdown.', W - 4)) {
     msg.push('  ' + line);
+  }
+  if (r.configIssues) {
+    msg.push('');
+    for (const issue of r.configIssues) {
+      const wrapped = wrap('config: ' + issue, W - 4);
+      msg.push('  ' + (wrapped[0] || ''));
+      for (const cont of wrapped.slice(1)) msg.push('    ' + cont);
+    }
   }
   msg.push('', '');
   process.stdout.write(msg.join('\n'));

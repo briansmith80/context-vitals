@@ -45,12 +45,7 @@ try { r = lib.report(hook.transcript_path, { deep: true }); } catch { /* snapsho
 const trigger = lib.safe(hook.trigger || hook.compaction_reason || hook.compactTrigger || '', 20) || 'unknown';
 const isAuto = trigger === 'auto';
 
-const fmt = (n) => {
-  const v = Math.abs(n);
-  if (v >= 1000000) return (n / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M';
-  if (v >= 1000) return Math.round(n / 1000) + 'K';
-  return String(Math.round(n));
-};
+const fmt = lib.fmt;
 
 /** Inline-code spans in the snapshot must survive a path containing a backtick. */
 const code = (s) => '`' + lib.safe(s, 200).replace(/`/g, '’') + '`';
@@ -67,8 +62,7 @@ try {
   lib.pruneDir(dir, '.md', 30);
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const session = String(hook.session_id || 'session').replace(/[^A-Za-z0-9._-]/g, '_');
-  snapshotPath = path.join(dir, `${stamp}-${session}.md`);
+  snapshotPath = path.join(dir, `${stamp}-${lib.sessionKey(hook.session_id)}.md`);
 
   const L = [];
   L.push('# Pre-compaction snapshot');
@@ -141,25 +135,13 @@ if (isAuto) {
 }
 
 if (lines.length) {
-  try {
-    const sessionsDir = path.join(lib.dataDir(), 'sessions');
-    const key = String(hook.session_id || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_') || 'unknown';
-    const stateFile = path.join(sessionsDir, key + '.json');
-
-    let state = {};
-    try {
-      const v = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-      if (v && typeof v === 'object' && !Array.isArray(v)) state = v;
-    } catch { /* no state yet */ }
-
-    const pending = Array.isArray(state.pending) ? state.pending.filter((x) => typeof x === 'string') : [];
-    // Merge rather than overwrite: this file must not clobber the zone-crossing
-    // bookkeeping stop-nudge.js keeps in the same object.
-    state.pending = pending.concat([lines.join('\n')]).slice(-4);
-
-    fs.mkdirSync(sessionsDir, { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify(state));
-  } catch { /* the snapshot still exists on disk */ }
+  // Merge rather than overwrite: this must not clobber the zone-crossing
+  // bookkeeping stop-nudge.js keeps in the same object. Both files address the
+  // state through lib, so they cannot disagree about which file it is — they
+  // used to sanitise the session id into a filename separately, and differently.
+  const state = lib.readSessionState(hook.session_id) || {};
+  state.pending = lib.pendingOf(state).concat([lines.join('\n')]).slice(-4);
+  lib.writeSessionState(hook.session_id, state); // best-effort; the snapshot is still on disk
 }
 
 process.exit(0);

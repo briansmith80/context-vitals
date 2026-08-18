@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['18.13', '20', '22']
+        node: ['20', '22', '24']
 
     steps:
       - uses: actions/checkout@v7
@@ -30,6 +30,13 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Coverage
+        # One leg only: the suite spawns the three scripts as child processes, so
+        # the instrumented figure is a floor, not the whole picture. It is here to
+        # show movement over time, not to gate on a number.
+        if: matrix.node == '24' && matrix.os == 'ubuntu-latest'
+        run: node --test --experimental-test-coverage plugins/context-doctor/test/context.test.js plugins/context-doctor/test/detection.test.js plugins/context-doctor/test/scripts.test.js
 
       - name: Report renders against the committed fixture
         shell: bash
@@ -78,14 +85,12 @@ jobs:
             echo "ok $f"
           done
 
-      - name: Plugin and package versions agree
-        run: |
-          node -e "
-            const a = require('./package.json').version;
-            const b = require('./plugins/context-doctor/.claude-plugin/plugin.json').version;
-            if (a !== b) { console.error('version drift: package.json ' + a + ' vs plugin.json ' + b); process.exit(1); }
-            console.log('ok version ' + a);
-          "
+      - name: Manifests agree and the shipping version is documented
+        # Both halves of one invariant, so they fail together: the two manifests
+        # must carry the same version, and that version must have a CHANGELOG
+        # entry. Users get new hooks from `claude plugin update` with no other
+        # record of what changed, so an undocumented release is a defect.
+        run: npm run release:check
 
   powershell:
     runs-on: windows-latest

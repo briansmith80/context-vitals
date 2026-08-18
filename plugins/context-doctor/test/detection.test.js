@@ -257,3 +257,125 @@ test('parseJsonl rejects valid-JSON-but-not-an-object lines', () => {
   assert.strictEqual(got.length, 1, 'only the object survives');
   assert.strictEqual(got[0].type, 'user');
 });
+
+// ── Config validation ────────────────────────────────────────
+//
+// Every setting fails closed, which is correct and used to be silent: the user
+// was left believing a setting was in force. configIssues() is what the report
+// prints instead, so these pin the exact wording -- a message that says
+// "ignored" without naming the fallback does not tell the user what IS in force.
+
+test('configIssues stays silent when there is nothing to report', () => {
+  withState({}, () => {
+    assert.deepStrictEqual(lib.configIssues(), [], 'no config file at all');
+  });
+  withState({ config: { quiet: true, minZone: 'act', contextWindow: '400k' } }, () => {
+    assert.deepStrictEqual(lib.configIssues(), [], 'a fully valid config');
+  });
+  withState({ config: { quiet: false, minZone: null, contextWindow: null } }, () => {
+    assert.deepStrictEqual(lib.configIssues(), [], 'null means auto-detect, not a mistake');
+  });
+});
+
+test('configIssues names the key, the rejected value and the fallback', () => {
+  withState({ config: { quiet: 'true', minZone: 'aact', contextWindow: 'four hundred k' } }, () => {
+    const got = lib.configIssues();
+    assert.strictEqual(got.length, 3, got.join(' | '));
+    assert.match(got[0], /^quiet: "true" ignored.*nudges are still on$/);
+    assert.match(got[1], /^minZone: "aact" ignored.*floor is watch$/);
+    assert.match(got[2], /^contextWindow: "four hundred k" ignored.*being detected$/);
+  });
+});
+
+test('configIssues flags a key that has no effect at all', () => {
+  // The likeliest real typo: JSON keys are case-sensitive and `minzone` is not
+  // `minZone`, so the setting reads as absent and the user never finds out.
+  withState({ config: { minzone: 'act' } }, () => {
+    const got = lib.configIssues();
+    assert.strictEqual(got.length, 1, got.join(' | '));
+    assert.match(got[0], /unknown key "minzone"/);
+  });
+});
+
+test('configIssues reports a config file that is not a usable object', () => {
+  // A missing comma reverts all three settings at once, which is the worst of
+  // the silent cases because nothing in the file looks wrong.
+  withState({}, () => {
+    fs.writeFileSync(path.join(DATA, 'config.json'), '{ "quiet": true,\n }');
+    const got = lib.configIssues();
+    assert.strictEqual(got.length, 1);
+    assert.match(got[0], /not a usable JSON object/);
+    fs.writeFileSync(path.join(DATA, 'config.json'), 'null');
+    assert.match(lib.configIssues()[0], /not a usable JSON object/, 'valid JSON, still unusable');
+    fs.unlinkSync(path.join(DATA, 'config.json'));
+  });
+});
+
+test('a rejected config value cannot inject escapes or break the code fence', () => {
+  // config.json is user-controlled text that reaches a report the skill relays
+  // verbatim inside a fence, so it goes through the same sanitiser as the
+  // transcript rather than being trusted for being local.
+  const hostile = 'a' + String.fromCharCode(27) + '[31m```red';
+  withState({ config: { minZone: hostile } }, () => {
+    const got = lib.configIssues().join('\n');
+    assert.ok(!got.includes(String.fromCharCode(27)), 'no escape survives');
+    assert.ok(!got.includes('`'), 'no backtick survives: ' + got);
+  });
+});
+
+test('configIssues describes a non-scalar without dumping it', () => {
+  withState({ config: { quiet: { nested: true }, minZone: ['act'] } }, () => {
+    const got = lib.configIssues();
+    assert.match(got[0], /quiet: an object ignored/);
+    assert.match(got[1], /minZone: a list ignored/);
+  });
+});
+
+// ── Session state ────────────────────────────────────────────
+//
+// One implementation, because both hooks address the same file: stop-nudge.js
+// keeps the zone bookkeeping and pre-compact.js queues an announcement into it.
+// They used to sanitise the session id into a filename separately, and
+// differently, so the two could address different files.
+
+test('a session id can never escape the sessions directory', () => {
+  const BS = String.fromCharCode(92); // a literal backslash, without one in this file
+  for (const id of ['../../evil', '..', '.', '', null, undefined, 'a/b', 'a' + BS + 'b', 'C:' + BS + 'x']) {
+    const file = lib.sessionStateFile(id);
+    assert.strictEqual(path.dirname(file), lib.sessionsDir(),
+      JSON.stringify(id) + ' escaped to ' + file);
+  }
+  assert.strictEqual(lib.sessionKey('abc-123_X.9'), 'abc-123_X.9', 'a real uuid survives intact');
+  assert.strictEqual(lib.sessionKey('..'), 'unknown');
+  assert.strictEqual(lib.sessionKey('.'), 'unknown');
+  assert.strictEqual(lib.sessionKey(''), 'unknown');
+});
+
+test('session state round-trips, and an absent file reads as null', () => {
+  const id = 'roundtrip-session';
+  assert.strictEqual(lib.readSessionState(id), null, 'null is the first-turn signal');
+  assert.strictEqual(lib.writeSessionState(id, { warnedSeverity: 2, pending: ['x'] }), true);
+  const got = lib.readSessionState(id);
+  assert.strictEqual(got.warnedSeverity, 2);
+  assert.deepStrictEqual(lib.pendingOf(got), ['x']);
+});
+
+test('pendingOf tolerates every shape a hand-edited state file can hold', () => {
+  assert.deepStrictEqual(lib.pendingOf(null), []);
+  assert.deepStrictEqual(lib.pendingOf({}), []);
+  assert.deepStrictEqual(lib.pendingOf({ pending: 'nope' }), []);
+  assert.deepStrictEqual(lib.pendingOf({ pending: ['a', 7, null, {}, 'b'] }), ['a', 'b']);
+});
+
+test('fmt is one implementation, and both hooks use it', () => {
+  assert.strictEqual(lib.fmt(368), '368');
+  assert.strictEqual(lib.fmt(412300), '412K');
+  assert.strictEqual(lib.fmt(1000000), '1M');
+  assert.strictEqual(lib.fmt(1200000), '1.2M');
+  const src = ['stop-nudge.js', 'pre-compact.js']
+    .map((f) => fs.readFileSync(path.join(__dirname, '..', 'scripts', f), 'utf8'));
+  for (const s of src) {
+    assert.ok(s.includes('lib.fmt'), 'hook must use the shared formatter');
+    assert.ok(!/const fmt = \(n\) =>/.test(s), 'hook must not carry its own copy');
+  }
+});

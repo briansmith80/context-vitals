@@ -434,3 +434,87 @@ test('pre-compact: every malformed stdin exits 0 without a stack trace', () => {
     assert.strictEqual((res.stderr || '').trim(), '', JSON.stringify(input) + ': must not print a stack trace');
   }
 });
+
+// ── Ignored config is reported, not swallowed ────────────────
+
+test('context-report: a setting that will be ignored is named in the report', () => {
+  const dir = tmpdir('cfgbad');
+  const data = tmpdir('cfgbaddata');
+  const f = transcript(dir, 'c.jsonl', 400000);
+  fs.writeFileSync(path.join(data, 'config.json'),
+    JSON.stringify({ quiet: 'true', minZone: 'aact', contextWindow: 'four hundred k' }));
+
+  const res = run(REPORT, { args: ['--transcript', f, '--data-dir', data], data });
+  assert.strictEqual(res.status, 0);
+  const out = res.stdout;
+
+  for (const needle of ['quiet: "true"', 'minZone: "aact"', 'contextWindow: "four hundred k"']) {
+    assert.ok(out.includes(needle), 'the report must name the rejected value: ' + needle);
+  }
+  assert.strictEqual((out.match(/^ +config /gm) || []).length, 3, 'one METHOD row per ignored setting');
+
+  // The rows are part of the report, so they answer to the same column budget.
+  for (const line of out.split('\n')) {
+    assert.ok(width(line) <= 72, 'over 72 columns (' + width(line) + '): ' + line);
+  }
+
+  const j = JSON.parse(run(REPORT, { args: ['--transcript', f, '--data-dir', data, '--format', 'json'], data }).stdout);
+  assert.ok(Array.isArray(j.configIssues) && j.configIssues.length === 3, 'and the JSON carries them too');
+});
+
+test('context-report: a valid config adds no rows at all', () => {
+  const dir = tmpdir('cfgok');
+  const data = tmpdir('cfgokdata');
+  const f = transcript(dir, 'c.jsonl', 400000);
+  fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ quiet: false, minZone: 'act' }));
+  const out = run(REPORT, { args: ['--transcript', f, '--data-dir', data], data }).stdout;
+  assert.strictEqual((out.match(/^ +config /gm) || []).length, 0, 'silence when there is nothing wrong');
+});
+
+test('context-report: an unusable config file is reported even with no reading', () => {
+  // The two failures compound: the config that would have fixed the window is
+  // itself the thing that is broken, so saying nothing leaves no way in.
+  const data = tmpdir('cfgraw');
+  fs.writeFileSync(path.join(data, 'config.json'), '{ "quiet": true,\n }');
+  const res = run(REPORT, { args: ['--transcript', path.join(data, 'nope.jsonl'), '--data-dir', data], data });
+  assert.strictEqual(res.status, 0);
+  assert.match(res.stdout, /no reading available/);
+  assert.match(res.stdout, /not a usable JSON object/);
+});
+
+test('stop-nudge: a quoted quiet does not silence, which is why the report says so', () => {
+  const dir = tmpdir('qq');
+  const data = tmpdir('qqdata');
+  fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ quiet: 'true' }));
+  const f = transcript(dir, 'q.jsonl', 400000);
+  const out = nudgeOut(run(NUDGE, { input: JSON.stringify({ session_id: 'qq', transcript_path: f }), data }));
+  assert.ok(out && /ACT/.test(out.systemMessage), 'a string is not a boolean: the setting fails closed');
+});
+
+// ── The two hooks address one state file ─────────────────────
+
+test('the hooks agree on the state file for an awkward session id', () => {
+  // stop-nudge.js mapped a session id of "." or ".." onto `unknown` and
+  // pre-compact.js did not, so the two addressed different files: the
+  // announcement was queued into one and the Stop hook read the other, and it
+  // was never delivered. Both go through lib.sessionStateFile now; this drives
+  // the real scripts, because that is where the two copies used to drift.
+  const dir = tmpdir('key');
+  const f = transcript(dir, 'k.jsonl', 300000);
+
+  for (const id of ['..', '.', 'a/b', '']) {
+    const data = tmpdir('keydata');
+    const pc = run(PRECOMPACT, {
+      input: JSON.stringify({ session_id: id, transcript_path: f, trigger: 'auto' }), data,
+    });
+    assert.strictEqual(pc.status, 0, JSON.stringify(id) + ': pre-compact exit code');
+
+    const out = nudgeOut(run(NUDGE, { input: JSON.stringify({ session_id: id, transcript_path: f }), data }));
+    assert.ok(out && /AUTO-compaction/.test(out.systemMessage),
+      JSON.stringify(id) + ': the announcement was queued where the Stop hook does not look');
+
+    const files = fs.readdirSync(path.join(data, 'sessions'));
+    assert.deepStrictEqual(files.length, 1,
+      JSON.stringify(id) + ': one state file, not one per hook: ' + files.join(', '));
+  }
+});

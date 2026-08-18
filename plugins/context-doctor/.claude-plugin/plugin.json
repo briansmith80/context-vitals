@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "context-doctor",
   "displayName": "Context Doctor",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Tells you when to /clear, when to /compact (and with what focus), and when to prune instead — from a measured reading of your live context window.",
   "author": {
     "name": "Brian Smith"

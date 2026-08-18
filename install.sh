@@ -41,10 +41,10 @@ command -v claude >/dev/null 2>&1 \
 command -v node >/dev/null 2>&1 \
   || fail "node is not on PATH. Context Doctor's hooks are Node scripts and need it."
 
-# package.json requires >=18.13, so check the minor too rather than just the major.
-NODE_OK=$(node -p 'const [a,b]=process.versions.node.split(".").map(Number); (a>18||(a===18&&b>=13))?"yes":"no"' 2>/dev/null || echo no)
+# package.json requires >=20, a whole major, so the major alone decides it.
+NODE_OK=$(node -p 'process.versions.node.split(".").map(Number)[0] >= 20 ? "yes" : "no"' 2>/dev/null || echo no)
 [ "$NODE_OK" = yes ] \
-  || fail "node 18.13 or newer is required (found $(node -v 2>/dev/null || echo none))."
+  || fail "node 20 or newer is required (found $(node -v 2>/dev/null || echo none))."
 
 # ── Install or update ────────────────────────────────────────
 
