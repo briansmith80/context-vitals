@@ -69,12 +69,14 @@ from `make-fixture.js` plus the renderer; CI diffs it.
 ## Releasing
 
 ```bash
-npm run bump 1.3.0        # both manifests + a CHANGELOG entry to fill in
+npm run bump 1.4.0        # both manifests + a CHANGELOG entry to fill in
 # fill in the changelog entry
 npm run release:check     # the invariant the lint job checks
 npm test
 git push                  # THIS is what ships — ask first
 claude plugin tag --push plugins/context-vitals   # provenance, not delivery
+gh release create context-vitals--v1.4.0 \
+  --title "Context Vitals 1.4.0" --notes-file notes.md --latest --verify-tag
 ```
 
 Users install from the default branch. The marketplace clone Claude Code keeps is
@@ -82,6 +84,16 @@ a shallow clone of `main` with no tags in it, so **pushing to `main` is what
 ships** and tags only record what went out. Changes to the README or the
 installers are live the moment they land — they are served from
 `raw.githubusercontent.com`, not the plugin cache — so they do not need a bump.
+
+The last two steps are separate, and each needs asking for separately. Nothing
+enforces the GitHub Release — no CI job checks it, no script writes it — which is
+why 1.2.0 shipped with a tag and no release. Put that version's `CHANGELOG.md`
+section in `notes.md` for the body; `--verify-tag` refuses if the tag step has not
+run.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) carries the same sequence with the full
+reasoning, plus what each test file protects. It is the human-facing copy; the
+commands above are here so you can hand them back without opening it.
 
 ## Layout
 

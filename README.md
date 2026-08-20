@@ -1,130 +1,29 @@
 # Context Vitals
 
-A Claude Code plugin that tells you **when to `/clear`, when to `/compact` (and with what focus), and when to just prune** — from a measured reading of your live context window, not a guess.
+[![test](https://github.com/briansmith80/context-vitals/actions/workflows/test.yml/badge.svg)](https://github.com/briansmith80/context-vitals/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/briansmith80/context-vitals?sort=semver&display_name=release&label=release)](https://github.com/briansmith80/context-vitals/releases)
+[![node](https://img.shields.io/badge/node-20%2B-blue)](package.json)
+[![dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)](package.json)
 
-The operating principle it encodes: *don't manage a full context window — avoid creating one.* Compaction is a repair, not a tonic.
+A Claude Code plugin that tells you **when to `/clear`, when to `/compact` (and
+with what focus), and when to just prune** — from a measured reading of your live
+context window.
 
----
+The principle it encodes: *don't manage a full context window — avoid creating
+one.* Compaction is a repair, not a tonic.
 
-## Install
+## What it looks like
 
-One line:
+Run `/context-check` in any session. It reports **two readings**, because two
+different things can go wrong:
 
-```
-claude plugin marketplace add https://github.com/briansmith80/context-vitals; claude plugin install context-vitals@context-vitals-marketplace --yes
-```
+- **absolute size** — how many tokens are in the window, which is what dilutes attention
+- **window pressure** — how close you are to the point where auto-compaction fires
 
-Then restart Claude Code or run `/reload-plugins` to activate the hooks.
+Whichever is worse **binds** the verdict, and the header line says which.
+**Runway** is how many tokens you have left before auto-compaction.
 
-Two notes on that line. It uses the full `https://` URL rather than the
-`briansmith80/context-vitals` shorthand, because Claude Code clones the shorthand
-**over SSH** by default and suppresses the interactive host-key and passphrase
-prompts — so an HTTPS-only GitHub setup fails with `Permission denied (publickey)`
-on a public repo that needs no credentials at all. And `;` chains commands in
-bash, zsh and PowerShell alike, which is why it is used instead of `&&`
-(a parser error in Windows PowerShell 5.1) — but it also means the second command
-runs even if the first fails. If you see two errors, fix the first one.
-
-<details>
-<summary>Other ways</summary>
-
-**From inside Claude Code:**
-
-```
-/plugin marketplace add https://github.com/briansmith80/context-vitals
-/plugin install context-vitals@context-vitals-marketplace
-```
-
-**With a preflight script** — checks for `claude` and a new enough `node`, then runs the two commands above, or updates in place if the plugin is already installed:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/briansmith80/context-vitals/main/install.sh | sh
-```
-
-```powershell
-irm https://raw.githubusercontent.com/briansmith80/context-vitals/main/install.ps1 | iex
-```
-
-Piping a script into a shell is worth hesitating over for anything that installs event hooks. Both scripts are short and do nothing the one-liner does not — read them first, or skip them.
-
-**From a local clone**, for development:
-
-```
-/plugin marketplace add /path/to/your/clone
-```
-
-**Without installing at all** — loads for one session only, changes no settings:
-
-```bash
-claude --plugin-dir /path/to/your/clone/plugins/context-vitals
-```
-
-</details>
-
-Requires Claude Code and `node` 20+ on `PATH`. No `npm install` — the plugin has zero dependencies and the tests use Node's built-in runner.
-
-Installing at user scope means the Stop hook runs in **every** session on the machine, not just one project. To undo:
-
-```
-claude plugin uninstall context-vitals@context-vitals-marketplace
-```
-
-## Updating
-
-```
-claude plugin update context-vitals@context-vitals-marketplace
-```
-
-Then restart Claude Code, or run `/reload-plugins`. From inside a session,
-`/plugin` does the same thing with a menu.
-
-Re-running either installer works too — both detect an existing install and
-update it rather than reinstalling.
-
-To stop doing this by hand, turn on auto-update for this marketplace in
-`/plugin`. That is a switch on your machine, per marketplace; nothing this repo
-publishes can set it for you.
-
-<details>
-<summary>Why reinstalling does nothing, and what "already at the latest version" means</summary>
-
-`claude plugin install` is a no-op once the plugin is present: it prints
-`already installed` and exits 0. So the install one-liner is not an update path
-— it reports success and changes nothing, which is worse than an error, because
-a tick invites no investigation. That is the whole reason the installers branch
-on what is already there. `claude plugin marketplace add` short-circuits the
-same way once its clone exists (`already on disk` — it fetches nothing), which
-is why the update path runs `claude plugin marketplace update` first rather than
-trusting `add` to refresh it.
-
-Updates are keyed on the `version` in `plugin.json`, and the cache keeps one
-directory per version:
-
-```
-~/.claude/plugins/cache/context-vitals-marketplace/context-vitals/1.1.0/
-```
-
-So if `claude plugin update` reports *already at the latest version* when you
-were expecting a change, the published version number has not moved — commits
-alone do not make an update visible. `claude plugin list` shows what you are
-actually running.
-
-</details>
-
----
-
-## What you get
-
-### `/context-check` — the on-demand verdict
-
-Measures the window, breaks down what is filling it, and gives **one** recommendation — including a ready-to-paste `/compact focus on …` line naming the actual files and open threads of *this* session. That last part is the whole point: Claude is the only participant who knows what your session is about, so it drafts the focus line rather than leaving you to.
-
-One axis carries both readings: the fill is absolute size, the tick above is
-where auto-compaction fires, the ticks below are the degradation thresholds
-either side of you. Seeing 412K sitting inside ACT while the trigger is still out
-at 667K *is* the argument for the verdict.
-
-```
+```text
   CONTEXT VITALS                            412.3K / 1M measured · 41.2%
   ══════════════════════════════════════════════════════════════════════
 
@@ -175,133 +74,183 @@ at 667K *is* the argument for the verdict.
         transcript         given with --transcript
 ```
 
-That block is a real capture, not an illustration — regenerate it with:
+A real capture from a committed fixture; CI regenerates it and diffs it.
+
+| Absolute size | Window pressure |
+| :------------ | :-------------- |
+| 🟢 Optimal — 0–150K | 🟢 under 50% |
+| 🟡 Watch — 150–350K | 🟡 50–75% |
+| 🟠 Act — 350–600K | 🟠 75–90% |
+| 🔴 Degraded — 600–850K | 🔴 90–100% |
+| ⛔ Critical — 850K+ | ⛔ 100%+ |
+
+Those are the defaults. `/context-check` moves them by task class, because
+thresholds depend on the precision the work needs — precise retrieval fails at
+50–100K, broad summarisation holds to 350–500K. The evidence behind every number,
+graded by source quality, is in
+[`thresholds.md`](plugins/context-vitals/skills/context-check/reference/thresholds.md).
+
+## Install
 
 ```bash
-node plugins/context-vitals/test/fixtures/make-fixture.js
-CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000 CLAUDE_CODE_AUTO_COMPACT_WINDOW=700000 \
-  node plugins/context-vitals/scripts/context-report.js \
-  --transcript plugins/context-vitals/test/fixtures/showcase.jsonl
+claude plugin marketplace add https://github.com/briansmith80/context-vitals; claude plugin install context-vitals@context-vitals-marketplace --yes
 ```
 
-Design constraints worth knowing, because they are load-bearing: no ANSI colour
-(the report is reproduced inside a markdown fence, where escapes render as
-literal garbage), so every colour is an emoji glyph; nothing exceeds 72 rendered
-columns; and a `≤` or `≥` on a value marks it as a **bound**, not a measurement.
-Column arithmetic is done in rendered columns rather than `String.length`,
-because `⛔` has length 1 and renders two columns wide.
+Restart Claude Code, or run `/reload-plugins`, to activate the hooks. Needs
+Claude Code and `node` 20+ on `PATH`. No `npm install`.
+
+To update later:
+
+```bash
+claude plugin update context-vitals@context-vitals-marketplace
+```
+
+Or turn on auto-update for the marketplace in `/plugin`.
+
+<details>
+<summary><strong>Other ways to install</strong></summary>
+
+From inside Claude Code:
+
+```text
+/plugin marketplace add https://github.com/briansmith80/context-vitals
+/plugin install context-vitals@context-vitals-marketplace
+```
+
+With a preflight script that checks `claude` and `node` first, then updates in
+place if the plugin is already there:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/briansmith80/context-vitals/main/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/briansmith80/context-vitals/main/install.ps1 | iex
+```
+
+Both scripts are short and do nothing the one-liner does not. Read them before
+you pipe them into a shell.
+
+Use the full `https://` URL rather than the `briansmith80/context-vitals`
+shorthand — the shorthand clones over SSH, which fails on an HTTPS-only setup.
+And `;` chains in bash, zsh and PowerShell alike where `&&` is a parser error in
+Windows PowerShell 5.1, so if you see two errors, fix the first one.
+
+</details>
+
+<details>
+<summary><strong>Why re-running the install command does nothing</strong></summary>
+
+The install one-liner is not an update path: `claude plugin install` prints
+`already installed` and changes nothing. Use `claude plugin update`.
+
+Updates are keyed on the `version` in `plugin.json`, and the cache keeps one
+directory per version:
+
+```text
+~/.claude/plugins/cache/context-vitals-marketplace/context-vitals/<version>/
+```
+
+So if `claude plugin update` says *already at the latest version* when you
+expected a change, the published version number has not moved — commits alone do
+not make an update visible. `claude plugin list` shows what you are running.
+
+</details>
+
+## What you get
+
+### `/context-check` — the on-demand verdict
+
+Measures the window, breaks down what is filling it, and gives **one**
+recommendation — including a ready-to-paste `/compact focus on …` line naming the
+real files and open threads of *this* session. Claude will also run it
+unprompted if you just ask whether your context is getting heavy.
+
+One axis carries both readings: the fill is absolute size, the tick above is
+where auto-compaction fires, the ticks below are the thresholds either side of
+you.
+
+**Pruning** means getting stale tool output out of context. Claude Code has no
+per-result delete, so in practice that is `/rewind` to before a large read, or
+`/clear` once you have noted what matters. The report names the biggest and
+oldest results so you know whether it is worth it.
 
 ### Stop-hook nudges — quiet, and only on crossings
 
 A one-line warning after a turn, the **first time** the session enters each worse
-zone — at most four per climb, one per zone, rather than one per turn. A
-compaction that drops the context by 40% or more resets the counter, so a session
-that compacts repeatedly can nudge again on each new climb. Silence it entirely
-with `quiet`, or raise the floor with `minZone`.
+zone — at most four per climb, one per zone, rather than one per turn. Any
+reading that comes back more than 40% smaller than the last resets the counter,
+so a session that compacts can nudge again on the next climb. Silence it with
+`quiet`, or raise the floor with `minZone`.
 
-The advice tracks whichever ladder bound the verdict: "rebuild from notes" for a
-degradation-driven warning, "compact while the choice is still yours" for a
-pressure-driven one.
-
-```
+```text
 Stop says: 🟠 Context Vitals · 412K/1M (41.2%) — ACT
    Attention meaningfully diluted. Expect missed details, re-reads, drift from earlier instructions.
    → Compact deliberately now: /compact focus on <what matters>. Run /context-check for a drafted focus line.
 ```
 
-`Stop says:` is Claude Code’s own label — it names hook output by event, and no
-field in `hooks.json` or the hook’s output changes it — so the plugin puts its
-name in the line it does control. With several Stop hooks installed you would
-otherwise have no way to tell whose message you are reading.
+`Stop says:` is Claude Code's own label, so the plugin names itself in the line —
+that is how you tell it from your other Stop hooks. The advice follows whichever
+reading bound the verdict: rebuild from notes for absolute size, compact while
+the choice is still yours for pressure.
 
 ### PreCompact snapshots — recovery when it goes lossy
 
-Before any compaction, writes a markdown snapshot of what was in context: size, category breakdown, largest tool results, and which files you read more than once (read those first if the summary loses the thread). When the compaction is **automatic** — the unfocused, lossy case — it says so.
+Before any compaction, writes a markdown snapshot of what was in context: size,
+category breakdown, largest tool results, and which files you read more than once
+(read those first if the summary loses the thread). When the compaction is
+**automatic** — the unfocused, lossy case — it says so.
 
-Snapshots land in `compactions/` inside the plugin data directory (see
-[Configuration](#configuration)), newest 30 kept.
+Snapshots land in `compactions/` inside the plugin data directory. It never
+blocks a compaction: blocking one would drive the conversation into the model's
+hard limit, which is worse than a lossy summary.
 
-The announcement is delivered on the **next turn**, by the Stop hook, not by the
-PreCompact hook that produced it: Claude Code discards a PreCompact hook's
-`systemMessage`, so a warning printed there would reach nobody. PreCompact queues
-the message into the session state file and the Stop hook — whose `systemMessage`
-*is* shown — hands it over. That announcement is delivered even when `quiet` is
-set, because silencing size warnings is not the same as consenting to lose
-context unannounced.
+## Why two readings, not one
 
-It never blocks a compaction. Blocking an auto-compact would drive the conversation into the model's hard limit, which is strictly worse than a lossy summary.
+Degradation is a function of *absolute token count* — 150K tokens dilute
+attention identically whether your window is 200K or 1M. Auto-compaction pressure
+is a function of *fraction of the configured window*. Either can bind:
 
-### `/context-setup` — configure the window
-
-Recommends and explains an auto-compact window for your model, and writes Context Vitals's own config.
-
----
-
-## The two-zone model
-
-**The plugin deliberately departs from the "% of 1M" table that inspired it.** Degradation is a function of *absolute token count* — 150K tokens dilute attention identically whether your window is 200K or 1M. Auto-compaction pressure is a function of *fraction of the configured window*. These are independent, and either can bind:
-
-- On a **200K** window you can hit auto-compaction while still well inside the green degradation zone.
+- On a **200K** window you can hit auto-compaction while still well inside the green zone.
 - On a **1M** window you can be deep into measurable degradation while nowhere near auto-compaction.
 
-So it computes both and reports the worse. `verdict.driver` names the binding constraint: `"degradation"` means quality, `"pressure"` means runway — and the report's header line says which in words.
-
-The pressure ladder is **suppressed** rather than guessed when both of its inputs
-are inventions: no configured trigger *and* a window that was only inferred from
-the model string. Reporting it anyway used to produce a confident `CRITICAL` at
-180K that flipped to `WATCH` one token later, when the self-correcting window
-floor fired.
-
-| Degradation zone (absolute tokens) |  | Pressure zone (% of auto-compact point) |
-| :--------------------------------- | :- | :-------------------------------------- |
-| 🟢 Optimal — 0–150K              |  | 🟢 under 50%                            |
-| 🟡 Watch — 150–350K              |  | 🟡 50–75%                              |
-| 🟠 Act — 350–600K                |  | 🟠 75–90%                              |
-| 🔴 Degraded — 600–850K           |  | 🔴 90–100%                             |
-| ⛔ Critical — 850K+               |  | ⛔ 100%+                                |
-
-`/context-check` narrows further by task class, because thresholds depend on the precision the work needs — precise retrieval fails at 50–100K, broad summarisation holds to 350–500K.
-
-The evidence behind every number is in
-[`plugins/context-vitals/skills/context-check/reference/thresholds.md`](plugins/context-vitals/skills/context-check/reference/thresholds.md), graded by source quality, with the caveats stated.
-
----
+So it computes both and reports the worse.
 
 ## Should you set `/autocompact 400k`?
 
-**On a 1M window, yes.** It puts the automatic pass at the top of the ACT zone — a safety net *below* the point where quality visibly suffers, leaving room to compact deliberately first.
+**On a 1M window, yes.** It puts the automatic pass at the top of the ACT zone — a
+safety net *below* the point where quality visibly suffers, leaving room to
+compact deliberately first.
 
-The point is **not** to compact more often. In one agent study (a 4B model on one
-maths benchmark), compacting on a timer barely beat never compacting — 41.4% vs
-38.9% — while an **oracle** that skips compaction whenever the answer is already
-correct scored 52.9%. That oracle consults the correct answer, so it is an upper
-bound rather than a workflow anyone can run; what it shows is that *timing*
-matters more than *frequency*. Setting the window low makes the automatic pass a
-floor you rarely hit — because you compacted with a focus before reaching it.
-
-**On a 200K window, leave it on `auto`.** 200K is already near the top of the WATCH zone; compacting earlier just buys extra lossy compactions for no quality gain. Manage that window with `/clear`.
-
-```
+```text
 /autocompact 400k
 ```
 
-Type it yourself — it applies to the current session *and* saves to `autoCompactWindow` in `~/.claude/settings.json` in one step. Precedence, highest first: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env var → `--autocompact` flag → the setting.
+Type it yourself: it applies to the current session *and* saves to
+`autoCompactWindow` in `~/.claude/settings.json` in one step.
 
----
+**On a 200K window, leave it on `auto`.** 200K is already near the top of the
+WATCH zone, so compacting earlier just buys extra lossy compactions for no
+quality gain. Manage that window with `/clear`.
+
+The point is **not** to compact more often — *timing* beats *frequency*. In one
+agent study, compacting on a timer barely beat never compacting (41.4% vs 38.9%),
+while an oracle that skipped unnecessary compactions scored 52.9% — an upper
+bound, not a workflow. A low window is a floor you rarely reach, because you
+compacted with a focus first.
 
 ## Configuration
 
-Config lives in the plugin's own data directory. For an **installed** plugin that
-is `$CLAUDE_PLUGIN_DATA`, which Claude Code creates per plugin:
+`/context-setup` writes this for you, and also recommends an auto-compact window
+for your model. For an installed plugin the file is:
 
-```
+```text
 ~/.claude/plugins/data/context-vitals-context-vitals-marketplace/config.json
 ```
 
-`~/.claude/context-vitals/config.json` is the fallback, used only when the plugin
-is loaded without being installed (`claude --plugin-dir …`) and so has no data
-directory of its own. `/context-setup` writes the right file for you; the
-`transcript`/`METHOD` rows in `/context-check` tell you which one is in play.
+Running uninstalled via `claude --plugin-dir` gives no plugin data directory, so
+the fallback is `~/.claude/context-vitals/config.json`. The `METHOD` block in
+`/context-check` tells you which one is in play.
 
 ```json
 {
@@ -311,65 +260,89 @@ directory of its own. `/context-setup` writes the right file for you; the
 }
 ```
 
-| Key               | Effect                                                                                                                                                        |
-| :---------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `quiet`         | `true` silences the Stop-hook zone nudges. `/context-check`, snapshots, and post-compaction announcements still work.                                     |
-| `minZone`       | Lowest zone allowed to nudge:`watch` (default), `act`, `degraded`, `critical`. `act` means "only when there is something to do".                    |
-| `contextWindow` | Override window detection. Accepts`1000000`, `"1M"`, `"400k"`. `null` = auto-detect. Set this if `windowConfident` is `false` in the JSON output. |
+| Key | Effect |
+| :-- | :----- |
+| `quiet` | `true` silences the Stop-hook zone nudges. `/context-check`, snapshots and post-compaction announcements still work. |
+| `minZone` | Lowest zone allowed to nudge: `watch` (default), `act`, `degraded`, `critical`. `act` means "only when there is something to do". |
+| `contextWindow` | Override window detection. Accepts `1000000`, `"1M"`, `"400k"`. `null` auto-detects. |
 
-Every key here fails closed, and **`/context-check` names anything it had to
-ignore**. A quoted `"quiet": "true"` is not a boolean and silences nothing; a
-misspelled `minZone` falls back to `watch`; an unparseable `contextWindow` falls
-through to detection; a missing comma reverts all three at once. Each of those
-used to be silent, which left you believing a setting was in force. Now the
-`METHOD` block leads with a `config` row saying what was rejected and what is in
-force instead — including on the no-reading path, where a broken config file is
-the likeliest reason there is nothing to show.
+Every key fails closed, and **`/context-check` names anything it had to ignore** —
+a quoted `"true"`, a misspelled zone, or a missing comma reverts to the defaults
+rather than silently half-applying.
 
----
+To remove the plugin entirely — note that at user scope the hooks run in **every**
+session on the machine, not just one project:
 
-## How it measures
-
-Claude Code hands hooks a `transcript_path` but **not** token usage — only the statusline receives that. So the plugin recovers the number from the transcript: the last main-chain assistant message records the usage of the request that produced it, and `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` is exactly what was sent to the model on that turn. That headline figure is measured, not estimated.
-
-The Stop hook reads only the last 512KB of the transcript, so it stays cheap on every turn. `/context-check` reads the whole file.
-
-Two details in that cheap path. A compaction is applied **before** measuring, not
-after: Claude Code leaves the pre-compaction usage record as the newest one in the
-file until it next replies, so measuring over the whole transcript would report
-the old, larger total at precisely the moment the Stop hook fires. When no
-assistant turn has happened since the boundary, the boundary's own `postTokens`
-is the honest figure, and the report says that is where the number came from. And
-when a single transcript line is larger than the 512KB window — one enormous tool
-result — that window contains no newline at all, so the read escalates in bounded
-steps rather than going blind exactly when the context is biggest.
-
-### Known limits
-
-- **The category breakdown is an estimate**, derived from character counts at ~4 chars/token. It is for relative sizing — which bucket dominates — not for exact accounting. The headline total is measured.
-- **Thinking is often stored redacted** (empty text, encrypted signature only). The plugin counts the signature, which is what actually gets replayed to the API, but this is approximate.
-- **"Baseline + unattributed"** is the residual: system prompt, tool schemas, `CLAUDE.md`, memory, and anything the transcript does not store in plaintext. It is computed as measured-total minus everything attributed, so all estimation error lands here.
-- **Window detection is inferred.** The transcript records the base model id (`claude-opus-5`) without the `[1m]` variant suffix, so the plugin also reads `model` from `~/.claude/settings.json`, and self-corrects upward if observed usage exceeds the inferred window. Set `contextWindow` if it still gets it wrong.
-- **`--autocompact` on the command line is invisible to hooks** and cannot be detected. The env var and the setting can.
-- **The auto-compact trigger point** is reported as the configured window minus ~33K of headroom for the summarisation request. That headroom is an approximation observed in practice, not a documented constant. It affects only the "fires in" figure, never the zone verdict. With **no** window configured, Claude Code picks its own model-tuned trigger *below* the model limit, which a hook cannot discover — so the figure is labelled `at most` and treated as an upper bound rather than an estimate.
-- **Some attachments are ephemeral.** System reminders injected for one turn are counted in the `attachments` bucket as though they persist, so that row can overstate slightly. It does not affect the measured headline.
-- **The estimate can over-attribute.** Dense JSON tool output tokenises well below 4 chars/token, so the attributed total sometimes exceeds the measured one. When that happens the report says so and the category percentages become shares of the estimate rather than of the measurement — use them to see which bucket dominates, nothing more.
-- **The transcript is chosen, not handed over.** Hooks get `transcript_path` directly, but `/context-check` has to find it: it matches on `CLAUDE_CODE_SESSION_ID`, and failing that on the `cwd` each transcript records about itself. If neither matches it reports no reading rather than guessing. Pass `--session <id>` or `--transcript <path>` to pin it. (Earlier versions reconstructed the project-directory slug and, when that missed, matched any project folder whose name merely *ended with* the current folder's basename — which could report an unrelated project's session as though it were yours.)
-- **Subagent context is not counted.** Sidechain traffic is excluded, because subagents have their own windows. What a subagent *returns* lands in the parent transcript as an ordinary tool result and is counted there.
-
-### Compaction
-
-A compaction does not truncate the transcript — Claude Code appends a `compact_boundary` entry and carries on in the same file. So the plugin restricts its analysis to what is **still in context**: the boundary's `preservedMessages.allUuids` names the pre-boundary messages carried through verbatim, and everything after the boundary is live by definition. Only the last boundary counts.
-
-Without this, the breakdown counts every tool result the compaction just discarded against a measured total that no longer includes them — category percentages run past 100%, the residual clamps to zero, and "prune candidates" names results that are already gone. That is worst exactly when you are most likely to look. Regression tests hold the line, including one that asserts a post-compaction transcript reports the post-compaction size rather than the stale pre-compaction total.
-
-`/context-check` reports how many compactions a session has been through and says the reading covers the post-compaction context only. On older transcripts that record just a preserved *segment*, it falls back to that; if even the metadata is missing it counts only post-boundary entries, deliberately under-counting rather than over-counting.
-
----
-
-## Layout
-
+```bash
+claude plugin uninstall context-vitals@context-vitals-marketplace
 ```
+
+Nothing grows without bound: `sessions/` keeps the newest 50 state files, pruned
+on the first turn of a new session, and `compactions/` the newest 30 snapshots,
+pruned before writing a new one.
+
+<details>
+<summary><strong>If it isn't working</strong></summary>
+
+- **Nothing appeared after a turn.** Restart Claude Code or run `/reload-plugins`; hooks load at session start. Check `quiet` and `minZone` too — below `minZone` there is deliberately no output.
+- **`/context-check` says "no reading available".** It could not find your transcript, or no assistant turn has happened yet. Pass `--session <id>` or `--transcript <path>` to pin it. A broken `config.json` is the next likeliest cause, and the `METHOD` block names what it rejected.
+- **`claude plugin update` says "already at the latest version".** The published version has not moved. `claude plugin list` shows what you are running.
+- **The window number looks wrong.** Detection is inferred; set `contextWindow` to override it.
+
+</details>
+
+## Under the hood
+
+<details>
+<summary><strong>How the number is measured</strong></summary>
+
+Claude Code hands hooks a `transcript_path` but **not** token usage — only the
+statusline gets that. So the plugin recovers the number from the transcript: the
+last main-chain assistant message records the usage of the request that produced
+it, and `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` is
+exactly what was sent to the model on that turn. That headline figure is measured,
+not estimated.
+
+The Stop hook reads only the last 512KB of the transcript, so it stays cheap on
+every turn. `/context-check` reads the whole file.
+
+A compaction is applied **before** measuring, not after: Claude Code leaves the
+pre-compaction usage record as the newest one in the file until it next replies,
+so measuring over the whole transcript would report the old, larger total at
+precisely the moment the Stop hook fires.
+
+</details>
+
+<details>
+<summary><strong>Known limits</strong></summary>
+
+- **The category breakdown is an estimate**, derived from character counts at ~4 chars/token. It is for relative sizing — which bucket dominates — not exact accounting. The headline total is measured.
+- **Thinking is often stored redacted** (empty text, encrypted signature only). The plugin counts the signature, which is what actually gets replayed to the API, but this is approximate.
+- **"Baseline + unattributed"** is the residual: system prompt, tool schemas, `CLAUDE.md`, memory, and anything the transcript does not store in plaintext. All estimation error lands here.
+- **Window detection is inferred** from the model id and `~/.claude/settings.json`, and self-corrects upward if usage exceeds it. Set `contextWindow` if it still gets it wrong.
+- **`--autocompact` on the command line is invisible to hooks** and cannot be detected. The env var and the setting can.
+- **The auto-compact trigger point** is the configured window minus ~33K of headroom, observed in practice rather than documented. It affects only the "fires at" figure, never the verdict. With **no** window configured, Claude Code picks a model-tuned trigger a hook cannot discover — so the figure is labelled `at most` and treated as an upper bound.
+- **Some attachments are ephemeral.** System reminders injected for one turn are counted as though they persist, so that row can overstate slightly. It does not affect the measured headline.
+- **The estimate can over-attribute.** Dense JSON tool output tokenises well below 4 chars/token, so the attributed total sometimes exceeds the measured one. When that happens the report says so, and the percentages become shares of the estimate.
+- **The transcript is chosen, not handed over.** `/context-check` has to find it, and reports no reading rather than guessing if it cannot. Pass `--session` or `--transcript` to pin it.
+- **Subagent context is not counted.** Sidechains have their own windows. What a subagent *returns* lands in the parent transcript as an ordinary tool result and is counted there.
+- **Readings after a compaction cover the post-compaction context only.** Claude Code appends a `compact_boundary` rather than truncating, so the plugin counts only what is still live — otherwise percentages run past 100% and "prune candidates" names results already gone. `/context-check` says how many compactions a session has been through.
+
+</details>
+
+## Contributing
+
+```bash
+npm test        # node --test, built in — no dependencies, Node 20+
+```
+
+Releasing, and what each CI invariant protects: see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+<details>
+<summary><strong>Layout</strong></summary>
+
+```text
 .claude-plugin/marketplace.json          local marketplace
 plugins/context-vitals/
 ├─ .claude-plugin/plugin.json
@@ -386,7 +359,7 @@ plugins/context-vitals/
    ├─ context.test.js                    transcript parsing, zones, compaction
    ├─ detection.test.js                  window detection, boundaries, sanitising
    ├─ scripts.test.js                    end-to-end, spawns all three scripts
-   └─ fixtures/make-fixture.js           regenerates the README's sample output
+   └─ fixtures/make-fixture.js           regenerates the README sample output
 ```
 
 Run the report standalone at any time:
@@ -395,86 +368,7 @@ Run the report standalone at any time:
 node plugins/context-vitals/scripts/context-report.js --format json
 ```
 
----
-
-## Tests
-
-```bash
-npm test        # node --test, built in — no dependencies, Node 20+
-```
-
-82 tests, no dependencies. Three files, by what they protect:
-
-- **`context.test.js`** pins the transcript-shape assumptions the whole plugin rests on — `isSidechain`, `messageId` / `message.id` (driven independently, so renaming either fails a test), `toolUseResult`, `compact_boundary`. None of these is documented or stable.
-- **`detection.test.js`** drives window detection, which is the denominator of every percentage, plus exact zone-boundary values, the sanitiser, and tail reading. It redirects `HOME` as well as `CLAUDE_PLUGIN_DATA`, because `detectWindow` reads `~/.claude/settings.json` and your real `model` key would otherwise decide the result.
-- **`scripts.test.js`** spawns the three scripts for real, with real stdin, each child given an empty `HOME` so your own `autoCompactWindow` cannot move the zone boundaries the fixtures are pinned to. This is where the risk lives: every failure path in the hooks is a deliberate `exit 0`, so without these a totally broken hook produces no signal at all. It asserts exit codes and empty stderr for malformed stdin (`''`, `null`, `123`, `[]`, prose), that the report never exceeds 72 rendered columns in any zone, and that a hostile transcript cannot inject an escape sequence or a fence-breaking backtick.
-
-Data the suite touches is confined to a temp dir, so your real config cannot affect the results — or be affected by them.
-
-The fixes in this suite were mutation-checked: each bug was deliberately
-re-introduced to confirm a test caught it. One deliberately is not caught —
-bounding the escalated tail read is a cost guard, not a behaviour change, since
-`loadEntries` falls back to a full read either way.
-
-## Releasing
-
-Two facts shape this. Users install from the default branch — the marketplace
-clone Claude Code keeps is a shallow clone of `main`, with no tags in it — so
-**pushing to `main` is what ships**. And installed plugins are cached per version
-at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`, with `claude
-plugin update` comparing version strings, so **a push that does not move the
-version reaches nobody**: every installed copy stays where it is while the update
-command reports *already at the latest version* and exits 0.
-
-A release is therefore a bump, then a push, then a tag recording what went out:
-
-```bash
-# 1. Bump. Writes both manifests and opens a CHANGELOG entry to fill in.
-npm run bump 1.3.0
-
-# 2. Fill in the changelog entry, then check the invariant the lint job checks:
-#    the manifests agree and this version is documented.
-npm run release:check
-
-# 3. Commit and push. This is the step that actually ships.
-git push
-
-# 4. Record it: validates plugin.json against the marketplace entry, refuses on
-#    a dirty working tree, and creates context-vitals--v<version>.
-claude plugin tag --push plugins/context-vitals
-```
-
-Step 1 exists because a release is gated on one string in three files, and the CI
-jobs that catch a half-done bump only run after the push. Step 2 is not optional
-politeness: `claude plugin update` hands someone new event hooks, and
-[`CHANGELOG.md`](CHANGELOG.md) is the only record of what they just got, so the
-**lint** job fails the build when the shipping version has no entry.
-
-Rehearse the last step with `claude plugin tag --dry-run plugins/context-vitals`,
-which prints the exact `git tag` and `git push` it would run. It has to be given
-the plugin directory rather than the repo root: `plugin.json` lives under
-`plugins/context-vitals` while `marketplace.json` is at the top, and the command
-looks for the former.
-
-The tags deliver nothing — no install path reads them. They exist so that
-`git diff context-vitals--v1.1.0 HEAD -- plugins/` can answer *what has changed
-since the last release*, which is exactly what the **version** CI job asks on
-every push: if the version in `plugin.json` is already tagged and `plugins/` has
-moved since, the build fails and says to bump. Before the first tag exists it is
-a no-op, and edits to the README or the installers never trip it, because neither
-is served from the plugin cache — those come from `raw.githubusercontent.com` at
-install time, so they are live on `main` the moment they land.
-
----
-
-## Housekeeping
-
-Both data directories are pruned automatically, so neither grows without bound:
-
-| Directory        | Kept                                                             |
-| :--------------- | :--------------------------------------------------------------- |
-| `sessions/`    | newest 50 state files, pruned on the first turn of a new session |
-| `compactions/` | newest 30 snapshots, pruned before writing a new one             |
+</details>
 
 ## License
 
