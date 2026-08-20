@@ -7,10 +7,10 @@
 // edited by hand: a hand-written sample drifts from the renderer and then
 // misrepresents a measurement tool. Run:
 //
-//   node plugins/context-doctor/test/fixtures/make-fixture.js
+//   node plugins/context-vitals/test/fixtures/make-fixture.js
 //   CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000 CLAUDE_CODE_AUTO_COMPACT_WINDOW=700000 \
-//     node plugins/context-doctor/scripts/context-report.js \
-//     --transcript plugins/context-doctor/test/fixtures/showcase.jsonl
+//     node plugins/context-vitals/scripts/context-report.js \
+//     --transcript plugins/context-vitals/test/fixtures/showcase.jsonl
 //
 // The scenario is chosen to exercise every branch worth showing: a
 // degradation-driven verdict on a 1M window, a configured auto-compact trigger

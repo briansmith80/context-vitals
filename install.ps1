@@ -1,5 +1,5 @@
 #
-# Context Doctor installer (Windows / PowerShell).
+# Context Vitals installer (Windows / PowerShell).
 #
 # Everything here is two `claude` commands plus preflight checks. If you would
 # rather not pipe a script into a shell — a reasonable instinct for something
@@ -13,27 +13,27 @@ $ErrorActionPreference = 'Stop'
 # the shorthand over SSH by default and suppresses the interactive host-key and
 # passphrase prompts, so an HTTPS-only GitHub setup — the common one on Windows —
 # fails with "Permission denied (publickey)" on a public repo.
-$Repo        = if ($env:CONTEXT_DOCTOR_REPO)  { $env:CONTEXT_DOCTOR_REPO }  else { 'https://github.com/briansmith80/context-doctor' }
-$Scope       = if ($env:CONTEXT_DOCTOR_SCOPE) { $env:CONTEXT_DOCTOR_SCOPE } else { 'user' }
-$Marketplace = 'context-doctor-marketplace'
-$Plugin      = 'context-doctor'
+$Repo        = if ($env:CONTEXT_VITALS_REPO)  { $env:CONTEXT_VITALS_REPO }  else { 'https://github.com/briansmith80/context-vitals' }
+$Scope       = if ($env:CONTEXT_VITALS_SCOPE) { $env:CONTEXT_VITALS_SCOPE } else { 'user' }
+$Marketplace = 'context-vitals-marketplace'
+$Plugin      = 'context-vitals'
 
 function Fail($msg) { Write-Error "error: $msg"; exit 1 }
 
 # -- Preflight --------------------------------------------------
 
 if ($Scope -notin @('user', 'project', 'local')) {
-  Fail "CONTEXT_DOCTOR_SCOPE must be user, project or local (got '$Scope')."
+  Fail "CONTEXT_VITALS_SCOPE must be user, project or local (got '$Scope')."
 }
 if ($Repo.StartsWith('-')) {
-  Fail "CONTEXT_DOCTOR_REPO must not start with '-'."
+  Fail "CONTEXT_VITALS_REPO must not start with '-'."
 }
 
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
   Fail "the 'claude' CLI is not on PATH. Install Claude Code first: https://claude.com/claude-code"
 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-  Fail "node is not on PATH. Context Doctor's hooks are Node scripts and need it."
+  Fail "node is not on PATH. Context Vitals's hooks are Node scripts and need it."
 }
 
 # package.json requires >=20, so the major alone decides it. The version test runs as
@@ -109,12 +109,12 @@ $after = Get-PluginField 'version'
 
 Write-Host ''
 if (-not $before) {
-  if ($after) { Write-Host "Context Doctor installed ($after)." }
-  else        { Write-Host 'Context Doctor installed.' }
+  if ($after) { Write-Host "Context Vitals installed ($after)." }
+  else        { Write-Host 'Context Vitals installed.' }
 } elseif ($before -eq $after) {
-  Write-Host "Context Doctor is already at $after - nothing to update."
+  Write-Host "Context Vitals is already at $after - nothing to update."
 } else {
-  Write-Host "Context Doctor updated: $before -> $after."
+  Write-Host "Context Vitals updated: $before -> $after."
 }
 
 Write-Host @'
@@ -126,7 +126,7 @@ Restart Claude Code, or run /reload-plugins, to activate the hooks.
 
 Update later by re-running this installer, or directly with:
 
-  claude plugin update context-doctor@context-doctor-marketplace
+  claude plugin update context-vitals@context-vitals-marketplace
 
 Either way it applies on the next restart. To stop having to do it at all,
 turn on auto-update for this marketplace in /plugin.
@@ -134,6 +134,6 @@ turn on auto-update for this marketplace in /plugin.
 Note: this enables the plugin at user scope, so the Stop hook runs in every
 session on this machine. Uninstall with:
 
-  claude plugin uninstall context-doctor@context-doctor-marketplace
+  claude plugin uninstall context-vitals@context-vitals-marketplace
 
 '@

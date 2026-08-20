@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to the **context-doctor** plugin.
+All notable changes to the **Context Vitals** plugin.
 
-The version in `plugins/context-doctor/.claude-plugin/plugin.json` is what
+The version in `plugins/context-vitals/.claude-plugin/plugin.json` is what
 actually delivers a release: installed copies are cached per version at
 `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`, and
 `claude plugin update` compares version strings — so a push that does not move
@@ -11,6 +11,45 @@ the version reaches nobody. Every version that ships gets an entry here, and the
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions are [semantic](https://semver.org/spec/v2.0.0.html).
+
+## [1.3.0] - 2026-08-20
+
+### Changed
+
+- **Renamed to Context Vitals — identifier and all.** The old name filed the
+  plugin under the wrong idea: in CLI convention `doctor` means *check my install
+  for config problems* (`brew doctor`, `flutter doctor`), while this reads a live
+  runtime quantity and reports it with its provenance. "Vitals" is what the
+  report already called its own two readings, so the new name is vocabulary the
+  tool was using anyway.
+
+  This is a breaking rename, taken deliberately before the plugin had users.
+  Everything moved:
+
+  | | from | to |
+  | :-- | :-- | :-- |
+  | Plugin | `context-doctor` | `context-vitals` |
+  | Marketplace | `context-doctor-marketplace` | `context-vitals-marketplace` |
+  | Directory | `plugins/context-doctor/` | `plugins/context-vitals/` |
+  | Config | `~/.claude/context-doctor/` | `~/.claude/context-vitals/` |
+  | Tags | `context-doctor--v*` | `context-vitals--v*` |
+  | Installer env | `CONTEXT_DOCTOR_REPO`, `_SCOPE` | `CONTEXT_VITALS_REPO`, `_SCOPE` |
+
+  There is no migration path and none is offered. Remove the old plugin and
+  marketplace, then install the new one; `claude plugin update` will not carry
+  you across, because the plugin it knew no longer exists. Settings under
+  `~/.claude/context-doctor/` are no longer read and can be deleted.
+
+- **The two-reading table is headed `MEASURE`, not `VITALS`.** With the plugin
+  itself called Context Vitals, the old header made one word name both the tool
+  and a single table inside its report.
+
+### Added
+
+- **A test pinning the Stop nudge's self-identification.** Claude Code labels
+  hook output by event, so the message text is the only thing telling you which
+  Stop hook is speaking. Nothing guarded that, which meant a rename could have
+  dropped the name silently.
 
 ## [1.2.0] - 2026-08-18
 
@@ -147,6 +186,7 @@ Initial release.
 - Zero dependencies. `thresholds.md` documents the evidence behind each
   threshold, with primary sources.
 
-[1.2.0]: https://github.com/briansmith80/context-doctor/compare/context-doctor--v1.1.0...context-doctor--v1.2.0
-[1.1.0]: https://github.com/briansmith80/context-doctor/releases/tag/context-doctor--v1.1.0
-[1.0.0]: https://github.com/briansmith80/context-doctor/commit/1b2027f
+[1.3.0]: https://github.com/briansmith80/context-vitals/compare/context-doctor--v1.2.0...context-vitals--v1.3.0
+[1.2.0]: https://github.com/briansmith80/context-vitals/compare/context-doctor--v1.1.0...context-doctor--v1.2.0
+[1.1.0]: https://github.com/briansmith80/context-vitals/releases/tag/context-doctor--v1.1.0
+[1.0.0]: https://github.com/briansmith80/context-vitals/commit/1b2027f

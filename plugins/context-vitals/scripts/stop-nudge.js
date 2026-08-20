@@ -154,9 +154,9 @@ if (r.verdict.driver === 'pressure') {
       ? `at most ~${fmt(until)} before auto-compaction`
       : `~${fmt(until)} before auto-compaction (${r.pctOfAutoCompact}% of the way)`)
     : `auto-compaction imminent (${fmt(r.autoCompactFiresAt)} threshold passed)`;
-  headline = `${r.verdict.emoji} Context Doctor · ${fmt(r.tokens)} — ${r.verdict.label} · ${runway}`;
+  headline = `${r.verdict.emoji} Context Vitals · ${fmt(r.tokens)} — ${r.verdict.label} · ${runway}`;
 } else {
-  headline = `${r.verdict.emoji} Context Doctor · ${fmt(r.tokens)}/${fmt(r.window)} (${r.pctOfWindow}%) — ${r.verdict.label}`;
+  headline = `${r.verdict.emoji} Context Vitals · ${fmt(r.tokens)}/${fmt(r.window)} (${r.pctOfWindow}%) — ${r.verdict.label}`;
 }
 
 emit(pending.concat([

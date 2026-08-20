@@ -381,7 +381,7 @@ function renderText(r, source) {
   // ── Masthead: the measured number, and the word `measured` touching it.
   const readout = fmtTP(r.tokens) + ' / ' + fmtT(r.window) + ' measured \u00B7 '
     + r.pctOfWindow.toFixed(1) + '%';
-  const title = 'CONTEXT DOCTOR';
+  const title = 'CONTEXT VITALS';
   const gap = Math.max(1, (W - IND) - width(title) - width(readout));
   push(' '.repeat(IND) + title + ' '.repeat(gap) + readout);
   push(' '.repeat(IND) + '\u2550'.repeat(W - IND));
@@ -424,12 +424,12 @@ function renderText(r, source) {
     });
   }
 
-  const wLabel = Math.max(width('VITALS'), ...rows.map((x) => width(x.label)));
+  const wLabel = Math.max(width('MEASURE'), ...rows.map((x) => width(x.label)));
   const wRead = Math.max(width('READING'), ...rows.map((x) => width(x.reading)));
   const wNorm = Math.max(width('NORMAL'), ...rows.map((x) => width(x.normal)));
   const wZone = Math.max(width('ZONE'), ...rows.map((x) => width(x.zone.label)));
 
-  push(' '.repeat(GIND) + pad('VITALS', wLabel + 2) + rpad('READING', wRead)
+  push(' '.repeat(GIND) + pad('MEASURE', wLabel + 2) + rpad('READING', wRead)
     + '  ' + pad('NORMAL', wNorm + 2) + 'ZONE');
   for (const x of rows) {
     push(' '.repeat(GIND - 2) + (x.bind ? '> ' : '  ')
@@ -595,7 +595,7 @@ try {
 if (format === 'json') {
   process.stdout.write(JSON.stringify(r, null, 2) + '\n');
 } else if (!r.ok) {
-  const msg = ['', '  CONTEXT DOCTOR \u2014 no reading available'];
+  const msg = ['', '  CONTEXT VITALS \u2014 no reading available'];
   for (const line of wrap(r.reason, W - 4)) msg.push('  ' + line);
   msg.push('');
   for (const line of wrap('Run /context for Claude Code\u2019s own built-in breakdown.', W - 4)) {

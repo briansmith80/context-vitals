@@ -1,4 +1,4 @@
-# Context Doctor
+# Context Vitals
 
 A Claude Code plugin that tells you **when to `/clear`, when to `/compact` (and with what focus), and when to just prune** — from a measured reading of your live context window, not a guess.
 
@@ -11,13 +11,13 @@ The operating principle it encodes: *don't manage a full context window — avoi
 One line:
 
 ```
-claude plugin marketplace add https://github.com/briansmith80/context-doctor; claude plugin install context-doctor@context-doctor-marketplace --yes
+claude plugin marketplace add https://github.com/briansmith80/context-vitals; claude plugin install context-vitals@context-vitals-marketplace --yes
 ```
 
 Then restart Claude Code or run `/reload-plugins` to activate the hooks.
 
 Two notes on that line. It uses the full `https://` URL rather than the
-`briansmith80/context-doctor` shorthand, because Claude Code clones the shorthand
+`briansmith80/context-vitals` shorthand, because Claude Code clones the shorthand
 **over SSH** by default and suppresses the interactive host-key and passphrase
 prompts — so an HTTPS-only GitHub setup fails with `Permission denied (publickey)`
 on a public repo that needs no credentials at all. And `;` chains commands in
@@ -31,18 +31,18 @@ runs even if the first fails. If you see two errors, fix the first one.
 **From inside Claude Code:**
 
 ```
-/plugin marketplace add https://github.com/briansmith80/context-doctor
-/plugin install context-doctor@context-doctor-marketplace
+/plugin marketplace add https://github.com/briansmith80/context-vitals
+/plugin install context-vitals@context-vitals-marketplace
 ```
 
 **With a preflight script** — checks for `claude` and a new enough `node`, then runs the two commands above, or updates in place if the plugin is already installed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/briansmith80/context-doctor/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/briansmith80/context-vitals/main/install.sh | sh
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/briansmith80/context-doctor/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/briansmith80/context-vitals/main/install.ps1 | iex
 ```
 
 Piping a script into a shell is worth hesitating over for anything that installs event hooks. Both scripts are short and do nothing the one-liner does not — read them first, or skip them.
@@ -56,7 +56,7 @@ Piping a script into a shell is worth hesitating over for anything that installs
 **Without installing at all** — loads for one session only, changes no settings:
 
 ```bash
-claude --plugin-dir /path/to/your/clone/plugins/context-doctor
+claude --plugin-dir /path/to/your/clone/plugins/context-vitals
 ```
 
 </details>
@@ -66,13 +66,13 @@ Requires Claude Code and `node` 20+ on `PATH`. No `npm install` — the plugin h
 Installing at user scope means the Stop hook runs in **every** session on the machine, not just one project. To undo:
 
 ```
-claude plugin uninstall context-doctor@context-doctor-marketplace
+claude plugin uninstall context-vitals@context-vitals-marketplace
 ```
 
 ## Updating
 
 ```
-claude plugin update context-doctor@context-doctor-marketplace
+claude plugin update context-vitals@context-vitals-marketplace
 ```
 
 Then restart Claude Code, or run `/reload-plugins`. From inside a session,
@@ -101,7 +101,7 @@ Updates are keyed on the `version` in `plugin.json`, and the cache keeps one
 directory per version:
 
 ```
-~/.claude/plugins/cache/context-doctor-marketplace/context-doctor/1.1.0/
+~/.claude/plugins/cache/context-vitals-marketplace/context-vitals/1.1.0/
 ```
 
 So if `claude plugin update` reports *already at the latest version* when you
@@ -125,7 +125,7 @@ either side of you. Seeing 412K sitting inside ACT while the trigger is still ou
 at 667K *is* the argument for the verdict.
 
 ```
-  CONTEXT DOCTOR                            412.3K / 1M measured · 41.2%
+  CONTEXT VITALS                            412.3K / 1M measured · 41.2%
   ══════════════════════════════════════════════════════════════════════
 
   🟠  ACT — absolute size binds, not runway.
@@ -136,7 +136,7 @@ at 667K *is* the argument for the verdict.
       ██████████████████████████▍░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
                             ╵350K ACT       ╵600K DEGRADED
 
-      VITALS           READING  NORMAL      ZONE
+      MEASURE          READING  NORMAL      ZONE
     > absolute size     412.3K  under 150K  ACT   🟠
       window pressure    61.8%  under 50%   WATCH 🟡
 
@@ -178,10 +178,10 @@ at 667K *is* the argument for the verdict.
 That block is a real capture, not an illustration — regenerate it with:
 
 ```bash
-node plugins/context-doctor/test/fixtures/make-fixture.js
+node plugins/context-vitals/test/fixtures/make-fixture.js
 CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000 CLAUDE_CODE_AUTO_COMPACT_WINDOW=700000 \
-  node plugins/context-doctor/scripts/context-report.js \
-  --transcript plugins/context-doctor/test/fixtures/showcase.jsonl
+  node plugins/context-vitals/scripts/context-report.js \
+  --transcript plugins/context-vitals/test/fixtures/showcase.jsonl
 ```
 
 Design constraints worth knowing, because they are load-bearing: no ANSI colour
@@ -204,7 +204,7 @@ degradation-driven warning, "compact while the choice is still yours" for a
 pressure-driven one.
 
 ```
-Stop says: 🟠 Context Doctor · 412K/1M (41.2%) — ACT
+Stop says: 🟠 Context Vitals · 412K/1M (41.2%) — ACT
    Attention meaningfully diluted. Expect missed details, re-reads, drift from earlier instructions.
    → Compact deliberately now: /compact focus on <what matters>. Run /context-check for a drafted focus line.
 ```
@@ -233,7 +233,7 @@ It never blocks a compaction. Blocking an auto-compact would drive the conversat
 
 ### `/context-setup` — configure the window
 
-Recommends and explains an auto-compact window for your model, and writes Context Doctor's own config.
+Recommends and explains an auto-compact window for your model, and writes Context Vitals's own config.
 
 ---
 
@@ -263,7 +263,7 @@ floor fired.
 `/context-check` narrows further by task class, because thresholds depend on the precision the work needs — precise retrieval fails at 50–100K, broad summarisation holds to 350–500K.
 
 The evidence behind every number is in
-[`plugins/context-doctor/skills/context-check/reference/thresholds.md`](plugins/context-doctor/skills/context-check/reference/thresholds.md), graded by source quality, with the caveats stated.
+[`plugins/context-vitals/skills/context-check/reference/thresholds.md`](plugins/context-vitals/skills/context-check/reference/thresholds.md), graded by source quality, with the caveats stated.
 
 ---
 
@@ -295,10 +295,10 @@ Config lives in the plugin's own data directory. For an **installed** plugin tha
 is `$CLAUDE_PLUGIN_DATA`, which Claude Code creates per plugin:
 
 ```
-~/.claude/plugins/data/context-doctor-context-doctor-marketplace/config.json
+~/.claude/plugins/data/context-vitals-context-vitals-marketplace/config.json
 ```
 
-`~/.claude/context-doctor/config.json` is the fallback, used only when the plugin
+`~/.claude/context-vitals/config.json` is the fallback, used only when the plugin
 is loaded without being installed (`claude --plugin-dir …`) and so has no data
 directory of its own. `/context-setup` writes the right file for you; the
 `transcript`/`METHOD` rows in `/context-check` tell you which one is in play.
@@ -371,7 +371,7 @@ Without this, the breakdown counts every tool result the compaction just discard
 
 ```
 .claude-plugin/marketplace.json          local marketplace
-plugins/context-doctor/
+plugins/context-vitals/
 ├─ .claude-plugin/plugin.json
 ├─ hooks/hooks.json                      Stop + PreCompact
 ├─ lib/context.js                        transcript parsing, zones, detection
@@ -392,7 +392,7 @@ plugins/context-doctor/
 Run the report standalone at any time:
 
 ```bash
-node plugins/context-doctor/scripts/context-report.js --format json
+node plugins/context-vitals/scripts/context-report.js --format json
 ```
 
 ---
@@ -430,7 +430,7 @@ A release is therefore a bump, then a push, then a tag recording what went out:
 
 ```bash
 # 1. Bump. Writes both manifests and opens a CHANGELOG entry to fill in.
-npm run bump 1.2.0
+npm run bump 1.3.0
 
 # 2. Fill in the changelog entry, then check the invariant the lint job checks:
 #    the manifests agree and this version is documented.
@@ -440,8 +440,8 @@ npm run release:check
 git push
 
 # 4. Record it: validates plugin.json against the marketplace entry, refuses on
-#    a dirty working tree, and creates context-doctor--v<version>.
-claude plugin tag --push plugins/context-doctor
+#    a dirty working tree, and creates context-vitals--v<version>.
+claude plugin tag --push plugins/context-vitals
 ```
 
 Step 1 exists because a release is gated on one string in three files, and the CI
@@ -450,14 +450,14 @@ politeness: `claude plugin update` hands someone new event hooks, and
 [`CHANGELOG.md`](CHANGELOG.md) is the only record of what they just got, so the
 **lint** job fails the build when the shipping version has no entry.
 
-Rehearse the last step with `claude plugin tag --dry-run plugins/context-doctor`,
+Rehearse the last step with `claude plugin tag --dry-run plugins/context-vitals`,
 which prints the exact `git tag` and `git push` it would run. It has to be given
 the plugin directory rather than the repo root: `plugin.json` lives under
-`plugins/context-doctor` while `marketplace.json` is at the top, and the command
+`plugins/context-vitals` while `marketplace.json` is at the top, and the command
 looks for the former.
 
 The tags deliver nothing — no install path reads them. They exist so that
-`git diff context-doctor--v1.1.0 HEAD -- plugins/` can answer *what has changed
+`git diff context-vitals--v1.1.0 HEAD -- plugins/` can answer *what has changed
 since the last release*, which is exactly what the **version** CI job asks on
 every push: if the version in `plugin.json` is already tagged and `plugins/` has
 moved since, the build fails and says to bump. Before the first tag exists it is

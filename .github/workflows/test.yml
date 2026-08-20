@@ -36,7 +36,7 @@ jobs:
         # the instrumented figure is a floor, not the whole picture. It is here to
         # show movement over time, not to gate on a number.
         if: matrix.node == '24' && matrix.os == 'ubuntu-latest'
-        run: node --test --experimental-test-coverage plugins/context-doctor/test/context.test.js plugins/context-doctor/test/detection.test.js plugins/context-doctor/test/scripts.test.js
+        run: node --test --experimental-test-coverage plugins/context-vitals/test/context.test.js plugins/context-vitals/test/detection.test.js plugins/context-vitals/test/scripts.test.js
 
       - name: Report renders against the committed fixture
         shell: bash
@@ -44,17 +44,17 @@ jobs:
           CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000'
           CLAUDE_CODE_AUTO_COMPACT_WINDOW: '700000'
         run: |
-          node plugins/context-doctor/scripts/context-report.js \
-            --transcript plugins/context-doctor/test/fixtures/showcase.jsonl
-          node plugins/context-doctor/scripts/context-report.js \
-            --transcript plugins/context-doctor/test/fixtures/showcase.jsonl \
+          node plugins/context-vitals/scripts/context-report.js \
+            --transcript plugins/context-vitals/test/fixtures/showcase.jsonl
+          node plugins/context-vitals/scripts/context-report.js \
+            --transcript plugins/context-vitals/test/fixtures/showcase.jsonl \
             --format json > /dev/null
 
       - name: The fixture is reproducible from its generator
         shell: bash
         run: |
-          node plugins/context-doctor/test/fixtures/make-fixture.js
-          git diff --exit-code -- plugins/context-doctor/test/fixtures/showcase.jsonl \
+          node plugins/context-vitals/test/fixtures/make-fixture.js
+          git diff --exit-code -- plugins/context-vitals/test/fixtures/showcase.jsonl \
             || { echo "showcase.jsonl is out of date; re-run make-fixture.js and commit"; exit 1; }
 
   lint:
@@ -79,8 +79,8 @@ jobs:
 
       - name: Manifests are valid JSON
         run: |
-          for f in .claude-plugin/marketplace.json plugins/context-doctor/.claude-plugin/plugin.json \
-                   plugins/context-doctor/hooks/hooks.json package.json; do
+          for f in .claude-plugin/marketplace.json plugins/context-vitals/.claude-plugin/plugin.json \
+                   plugins/context-vitals/hooks/hooks.json package.json; do
             node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
             echo "ok $f"
           done
@@ -132,8 +132,8 @@ jobs:
       - name: A released version must not have moved on underneath its tag
         shell: bash
         run: |
-          version=$(node -p "require('./plugins/context-doctor/.claude-plugin/plugin.json').version")
-          tag="context-doctor--v$version"
+          version=$(node -p "require('./plugins/context-vitals/.claude-plugin/plugin.json').version")
+          tag="context-vitals--v$version"
           echo "version in plugin.json: $version"
 
           if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
@@ -151,7 +151,7 @@ jobs:
           echo "Installed copies are cached per version, so this change would reach nobody:"
           echo "  claude plugin update would report \"already at the latest version ($version)\"."
           echo
-          echo "Bump version in plugins/context-doctor/.claude-plugin/plugin.json"
+          echo "Bump version in plugins/context-vitals/.claude-plugin/plugin.json"
           echo "and package.json (the lint job checks they agree), then tag the release."
           echo
           git diff --stat "$tag" HEAD -- plugins/

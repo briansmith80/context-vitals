@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const PLUGIN_MANIFEST = path.join(ROOT, 'plugins', 'context-doctor', '.claude-plugin', 'plugin.json');
+const PLUGIN_MANIFEST = path.join(ROOT, 'plugins', 'context-vitals', '.claude-plugin', 'plugin.json');
 const PACKAGE_MANIFEST = path.join(ROOT, 'package.json');
 const CHANGELOG = path.join(ROOT, 'CHANGELOG.md');
 
@@ -144,6 +144,6 @@ process.stdout.write([
   '',
   'Next: fill in the changelog, run npm test, then commit and push — pushing to',
   'main is what ships. Record it afterwards with:',
-  '  claude plugin tag --push plugins/context-doctor',
+  '  claude plugin tag --push plugins/context-vitals',
   '',
 ].join('\n'));

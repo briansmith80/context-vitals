@@ -8,7 +8,7 @@
 // `exit 0`, so a totally broken hook produces no signal at all. These tests
 // spawn the real scripts with real stdin and assert on what they emit.
 //
-//   node --test plugins/context-doctor/test/
+//   node --test plugins/context-vitals/test/
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -150,7 +150,7 @@ test('context-report: every malformed input still exits 0 with a clean message',
     const res = run(REPORT, { args: ['--transcript', file] });
     assert.strictEqual(res.status, 0, label + ': exit code');
     assert.strictEqual((res.stderr || '').trim(), '', label + ': stderr must stay empty');
-    assert.match(res.stdout, /CONTEXT DOCTOR/, label + ': still identifies itself');
+    assert.match(res.stdout, /CONTEXT VITALS/, label + ': still identifies itself');
     assert.match(res.stdout, /no reading available/, label + ': says it has no reading');
   }
 });
@@ -296,6 +296,21 @@ test('stop-nudge: warns once per zone, then stays quiet at the same zone', () =>
 
   const second = run(NUDGE, { input: payload, data });
   assert.strictEqual(second.stdout.trim(), '', 'the same zone must not warn twice');
+});
+
+test('stop-nudge: the nudge names the plugin, because the hook label does not', () => {
+  const dir = tmpdir('whose');
+  const data = tmpdir('whosedata');
+  const f = transcript(dir, 'a.jsonl', 400000); // ACT on the degradation ladder
+  // Claude Code labels hook output by event, so this surfaces as "Stop says:"
+  // and no field in hooks.json changes that. With several Stop hooks installed
+  // the text is the only thing telling you whose message you are reading, so a
+  // rename that drops the name silently costs that.
+  const out = nudgeOut(run(NUDGE, {
+    input: JSON.stringify({ session_id: 'whose1', transcript_path: f }), data,
+  }));
+  assert.ok(out, 'ACT must warn');
+  assert.match(out.systemMessage, /Context Vitals/, 'the nudge must identify itself');
 });
 
 test('stop-nudge: advice follows the ladder that actually bound the verdict', () => {

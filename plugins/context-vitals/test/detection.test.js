@@ -8,7 +8,7 @@
 // at its second branch, leaving every branch below it dead during that run.
 // Five independent mutations survived. This file drives the branches directly.
 //
-//   node --test plugins/context-doctor/test/
+//   node --test plugins/context-vitals/test/
 
 const test = require('node:test');
 const assert = require('node:assert');

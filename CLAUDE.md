@@ -1,4 +1,4 @@
-# context-doctor
+# Context Vitals
 
 A Claude Code plugin that reads the live context window from the session
 transcript and says whether to `/clear`, `/compact` (with a drafted focus line),
@@ -13,7 +13,7 @@ dependency — not for linting, not for testing, not for colour.
 
 ## Before you change anything
 
-1. `npm test` — 82 tests, must be green before you start and after you finish.
+1. `npm test` — must be green before you start and after you finish.
 2. Read the top entry of [CHANGELOG.md](CHANGELOG.md). It is written for users,
    and it is the fastest way to know what the last release actually changed.
 
@@ -74,7 +74,7 @@ npm run bump 1.3.0        # both manifests + a CHANGELOG entry to fill in
 npm run release:check     # the invariant the lint job checks
 npm test
 git push                  # THIS is what ships — ask first
-claude plugin tag --push plugins/context-doctor   # provenance, not delivery
+claude plugin tag --push plugins/context-vitals   # provenance, not delivery
 ```
 
 Users install from the default branch. The marketplace clone Claude Code keeps is
@@ -85,10 +85,10 @@ installers are live the moment they land — they are served from
 
 ## Layout
 
-`plugins/context-doctor/lib/context.js` is the core: transcript parsing, window
+`plugins/context-vitals/lib/context.js` is the core: transcript parsing, window
 detection, zone classification, and the shared session-state and formatting
-helpers both hooks use. `scripts/` holds the two hooks and the `/context-check`
-data source. `skills/` holds the two slash commands, and
+helpers both hooks use. Beside it, `scripts/` holds the two hooks and the
+`/context-check` data source. `skills/` holds the two slash commands, and
 `skills/context-check/reference/thresholds.md` documents the evidence behind
 every threshold, with primary sources — update it if you move a number.
 

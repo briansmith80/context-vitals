@@ -1,6 +1,6 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "context-doctor-marketplace",
+  "name": "context-vitals-marketplace",
   "description": "Context window hygiene tooling for Claude Code",
   "owner": {
     "name": "Brian Smith",
@@ -8,10 +8,10 @@
   },
   "plugins": [
     {
-      "name": "context-doctor",
+      "name": "context-vitals",
       "description": "Tells you when to /clear, when to /compact (and with what focus), and when to prune instead — from a measured reading of your live context window.",
       "category": "productivity",
-      "source": "./plugins/context-doctor"
+      "source": "./plugins/context-vitals"
     }
   ]
 }

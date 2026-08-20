@@ -7,7 +7,7 @@
 // which is documented or stable. These fixtures pin the assumptions so a change
 // upstream fails here instead of silently producing a wrong reading.
 //
-//   node --test plugins/context-doctor/test/
+//   node --test plugins/context-vitals/test/
 
 const test = require('node:test');
 const assert = require('node:assert');

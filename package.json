@@ -1,6 +1,6 @@
 {
-  "name": "context-doctor-marketplace",
-  "version": "1.2.0",
+  "name": "context-vitals-marketplace",
+  "version": "1.3.0",
   "private": true,
   "description": "Context window hygiene tooling for Claude Code",
   "license": "MIT",
@@ -9,8 +9,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "test": "node --test plugins/context-doctor/test/context.test.js plugins/context-doctor/test/detection.test.js plugins/context-doctor/test/scripts.test.js",
-    "report": "node plugins/context-doctor/scripts/context-report.js",
+    "test": "node --test plugins/context-vitals/test/context.test.js plugins/context-vitals/test/detection.test.js plugins/context-vitals/test/scripts.test.js",
+    "report": "node plugins/context-vitals/scripts/context-report.js",
     "bump": "node scripts/bump-version.js",
     "release:check": "node scripts/bump-version.js --check"
   }

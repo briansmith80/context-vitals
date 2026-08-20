@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 #
-# Context Doctor installer.
+# Context Vitals installer.
 #
 # Everything here is two `claude` commands plus preflight checks. If you would
 # rather not pipe a script into a shell — a reasonable instinct for something
@@ -16,10 +16,10 @@ set -eu
 # (`gh auth login`, Credential Manager, Keychain) gets a hard
 # "Permission denied (publickey)" on a public repository that needs no
 # credentials at all.
-REPO="${CONTEXT_DOCTOR_REPO:-https://github.com/briansmith80/context-doctor}"
-MARKETPLACE="context-doctor-marketplace"
-PLUGIN="context-doctor"
-SCOPE="${CONTEXT_DOCTOR_SCOPE:-user}"
+REPO="${CONTEXT_VITALS_REPO:-https://github.com/briansmith80/context-vitals}"
+MARKETPLACE="context-vitals-marketplace"
+PLUGIN="context-vitals"
+SCOPE="${CONTEXT_VITALS_SCOPE:-user}"
 
 say()  { printf '%s\n' "$*"; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -28,18 +28,18 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 case "$SCOPE" in
   user|project|local) ;;
-  *) fail "CONTEXT_DOCTOR_SCOPE must be user, project or local (got '$SCOPE')." ;;
+  *) fail "CONTEXT_VITALS_SCOPE must be user, project or local (got '$SCOPE')." ;;
 esac
 
 case "$REPO" in
-  -*) fail "CONTEXT_DOCTOR_REPO must not start with '-'." ;;
+  -*) fail "CONTEXT_VITALS_REPO must not start with '-'." ;;
 esac
 
 command -v claude >/dev/null 2>&1 \
   || fail "the 'claude' CLI is not on PATH. Install Claude Code first: https://claude.com/claude-code"
 
 command -v node >/dev/null 2>&1 \
-  || fail "node is not on PATH. Context Doctor's hooks are Node scripts and need it."
+  || fail "node is not on PATH. Context Vitals's hooks are Node scripts and need it."
 
 # package.json requires >=20, a whole major, so the major alone decides it.
 NODE_OK=$(node -p 'process.versions.node.split(".").map(Number)[0] >= 20 ? "yes" : "no"' 2>/dev/null || echo no)
@@ -102,11 +102,11 @@ AFTER=$(plugin_field version)
 
 say ""
 if [ -z "$BEFORE" ]; then
-  say "Context Doctor installed${AFTER:+ (${AFTER})}."
+  say "Context Vitals installed${AFTER:+ (${AFTER})}."
 elif [ "$BEFORE" = "$AFTER" ]; then
-  say "Context Doctor is already at ${AFTER} - nothing to update."
+  say "Context Vitals is already at ${AFTER} - nothing to update."
 else
-  say "Context Doctor updated: ${BEFORE} -> ${AFTER}."
+  say "Context Vitals updated: ${BEFORE} -> ${AFTER}."
 fi
 
 cat <<'NEXT'
@@ -118,7 +118,7 @@ Restart Claude Code, or run /reload-plugins, to activate the hooks.
 
 Update later by re-running this installer, or directly with:
 
-  claude plugin update context-doctor@context-doctor-marketplace
+  claude plugin update context-vitals@context-vitals-marketplace
 
 Either way it applies on the next restart. To stop having to do it at all,
 turn on auto-update for this marketplace in /plugin.
@@ -126,6 +126,6 @@ turn on auto-update for this marketplace in /plugin.
 Note: this enables the plugin at user scope, so the Stop hook runs in every
 session on this machine. Uninstall with:
 
-  claude plugin uninstall context-doctor@context-doctor-marketplace
+  claude plugin uninstall context-vitals@context-vitals-marketplace
 
 NEXT

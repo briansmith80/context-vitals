@@ -1,6 +1,6 @@
 ---
 name: context-setup
-description: Configure the auto-compact window and Context Doctor's own settings. Use when the user asks about /autocompact, wants auto-compaction to fire earlier, or wants to silence or tune the context nudges.
+description: Configure the auto-compact window and Context Vitals's own settings. Use when the user asks about /autocompact, wants auto-compaction to fire earlier, or wants to silence or tune the context nudges.
 disable-model-invocation: true
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/context-report.js"*), Read, Write, Edit
 ---
@@ -60,19 +60,19 @@ Precedence, highest first: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env var →
 `autoCompactSource` came back as the env var, say that the setting will be
 ignored while it is set.
 
-## B — configure Context Doctor itself
+## B — configure Context Vitals itself
 
 The config file lives in the plugin's own data directory, which Claude Code
 creates per installed plugin. Get the real path from the same JSON output as
 above — it is where `--data-dir` pointed — or run:
 
 ```bash
-node -e "console.log(require('path').join(process.env.CLAUDE_PLUGIN_DATA || require('os').homedir() + '/.claude/context-doctor', 'config.json'))"
+node -e "console.log(require('path').join(process.env.CLAUDE_PLUGIN_DATA || require('os').homedir() + '/.claude/context-vitals', 'config.json'))"
 ```
 
 For an installed plugin that is
-`~/.claude/plugins/data/context-doctor-context-doctor-marketplace/config.json`.
-The `~/.claude/context-doctor/` path is only used when the plugin is loaded
+`~/.claude/plugins/data/context-vitals-context-vitals-marketplace/config.json`.
+The `~/.claude/context-vitals/` path is only used when the plugin is loaded
 without being installed (`claude --plugin-dir …`), which has no data directory
 of its own. Create the file if it is absent.
 

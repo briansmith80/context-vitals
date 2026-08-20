@@ -1,6 +1,6 @@
 'use strict';
 //
-// context.js — shared core for the context-doctor plugin.
+// context.js — shared core for the context-vitals plugin.
 //
 // Claude Code hooks receive `transcript_path` but NOT token usage, so we
 // recover the live context size from the transcript itself: the last
@@ -212,7 +212,7 @@ function setDataDir(dir) {
 function dataDir() {
   if (dataDirOverride) return dataDirOverride;
   if (process.env.CLAUDE_PLUGIN_DATA) return process.env.CLAUDE_PLUGIN_DATA;
-  return path.join(os.homedir(), '.claude', 'context-doctor');
+  return path.join(os.homedir(), '.claude', 'context-vitals');
 }
 
 function readPluginConfig() {
@@ -384,7 +384,7 @@ function detectWindow(modelId, observedTokens) {
   const cfg = readPluginConfig();
 
   const fromConfig = parseWindow(cfg.contextWindow);
-  if (fromConfig) return { window: fromConfig, source: 'context-doctor config.json', confident: true };
+  if (fromConfig) return { window: fromConfig, source: 'context-vitals config.json', confident: true };
 
   const fromEnv = parseWindow(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS);
   if (fromEnv) return { window: fromEnv, source: 'CLAUDE_CODE_MAX_CONTEXT_TOKENS', confident: true };
