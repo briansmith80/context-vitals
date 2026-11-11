@@ -428,6 +428,107 @@ test('an unconfigured trigger point is reported as an upper bound', () => {
   assert.equal(r.firesAtIsUpperBound, !r.autoCompactConfigured);
 });
 
+// ── recentActivity ───────────────────────────────────────────
+//
+// The model tip rests on two more undocumented shapes: `message.model` on every
+// assistant entry, and the `<synthetic>` placeholder Claude Code writes there
+// for its own notices. Both are pinned here for the same reason as the rest.
+
+const callsOf = (names, opts) => names.map((name, i) => toolCall(`ra-${nextUuid()}-${i}`, name, {}, opts));
+const repeat = (n, name) => new Array(n).fill(name);
+
+test('recentActivity counts the last twenty tool calls and sorts them by kind', () => {
+  const entries = [
+    ...callsOf(repeat(30, 'Read')),                  // older than the window
+    ...callsOf(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']),
+    ...callsOf(['Bash', 'PowerShell']),
+    ...callsOf(repeat(14, 'Grep')),
+    userText('thanks'),
+    assistant({ text: 'done', usage: usage(50000) }),
+  ];
+  const a = lib.recentActivity(entries);
+  assert.deepEqual(a, { model: 'claude-opus-5', calls: 20, edits: 4, shell: 2 });
+});
+
+test('recentActivity cuts the window inside a message that made several calls', () => {
+  // One assistant message can carry parallel tool calls. The window is twenty
+  // calls, not twenty messages, and it is the newest ones that count.
+  const entries = [
+    assistant({ content: [
+      { type: 'tool_use', id: 'p1', name: 'Edit', input: {} },
+      { type: 'tool_use', id: 'p2', name: 'Bash', input: {} },
+      { type: 'tool_use', id: 'p3', name: 'Read', input: {} },
+    ] }),
+    ...callsOf(repeat(19, 'Grep')),
+  ];
+  assert.deepEqual(lib.recentActivity(entries), { model: 'claude-opus-5', calls: 20, edits: 0, shell: 0 },
+    'only the last call of that message is inside the window');
+});
+
+test('recentActivity reports a short window as short, never padded', () => {
+  const a = lib.recentActivity(callsOf(['Edit', 'Bash', 'Read']));
+  assert.deepEqual(a, { model: 'claude-opus-5', calls: 3, edits: 1, shell: 1 });
+  assert.equal(lib.isMostlyExecution(a), false, 'three calls say nothing about a session');
+  assert.deepEqual(lib.recentActivity([]), { model: null, calls: 0, edits: 0, shell: 0 });
+});
+
+test('recentActivity stops at a model switch', () => {
+  const entries = [
+    ...callsOf(repeat(20, 'Edit'), { model: 'claude-opus-5' }),
+    ...callsOf(['Read', 'Bash'], { model: 'claude-sonnet-5' }),
+  ];
+  const a = lib.recentActivity(entries);
+  assert.deepEqual(a, { model: 'claude-sonnet-5', calls: 2, edits: 0, shell: 1 },
+    'the calls Opus made are not evidence about the model in use now');
+});
+
+test('recentActivity ignores sidechains and synthetic notices', () => {
+  const entries = [
+    ...callsOf(repeat(3, 'Edit')),
+    // A subagent on another model, interleaved in the same file.
+    ...callsOf(repeat(5, 'Bash'), { model: 'claude-haiku-5', isSidechain: true }),
+    // Claude Code's own notice. Not a model, so not a switch either.
+    assistant({ model: '<synthetic>', text: 'API Error: overloaded' }),
+    ...callsOf(repeat(2, 'Edit')),
+  ];
+  const a = lib.recentActivity(entries);
+  assert.deepEqual(a, { model: 'claude-opus-5', calls: 5, edits: 5, shell: 0 });
+});
+
+test('recentActivity survives entries with no model, no content or junk blocks', () => {
+  const entries = [
+    { type: 'assistant', message: {} },
+    { type: 'assistant', message: { model: 7, content: 'text' } },
+    { type: 'assistant', message: { model: 'claude-opus-5', content: [null, 'x', { type: 'tool_use' }] } },
+    { type: 'assistant' },
+  ];
+  assert.deepEqual(lib.recentActivity(entries), { model: 'claude-opus-5', calls: 1, edits: 0, shell: 0 });
+});
+
+test('isMostlyExecution holds its three boundaries exactly', () => {
+  const W = lib.ACTIVITY_WINDOW;
+  const need = Math.ceil(W * lib.EXECUTION_SHARE);   // 12 of 20
+  const minEdits = lib.EXECUTION_MIN_EDITS;          // 3
+  const at = (calls, edits, shell) => lib.isMostlyExecution({ model: 'x', calls, edits, shell });
+
+  assert.equal(at(W, minEdits, need - minEdits), true, 'exactly on all three');
+  assert.equal(at(W - 1, minEdits, need - minEdits), false, 'one call short of a full window');
+  assert.equal(at(W, minEdits, need - minEdits - 1), false, 'one call short of the share');
+  assert.equal(at(W, minEdits - 1, need - minEdits + 1), false, 'one edit short, however much shell');
+  assert.equal(at(W, 0, W), false, 'shell alone is not execution: it is most of any session');
+  assert.equal(lib.isMostlyExecution(null), false);
+  assert.equal(lib.isMostlyExecution(undefined), false);
+});
+
+test('report only tallies activity when asked', () => {
+  const file = path.join(TMP, 'activity.jsonl');
+  const entries = [...callsOf(['Edit', 'Bash']), assistant({ text: 'ok', usage: usage(30000) })];
+  fs.writeFileSync(file, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  assert.equal(lib.report(file, { deep: false }).activity, undefined, 'the per-turn path pays for it only on request');
+  assert.deepEqual(lib.report(file, { deep: false, activity: true }).activity,
+    { model: 'claude-opus-5', calls: 2, edits: 1, shell: 1 });
+});
+
 // ── parseJsonl ───────────────────────────────────────────────
 
 test('parseJsonl skips blanks, prose and truncated lines', () => {

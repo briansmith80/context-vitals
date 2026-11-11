@@ -103,6 +103,39 @@ one is binding — `"degradation"` means quality, `"pressure"` means runway.
 **Pressure zones (fraction of the effective auto-compact point):** 50% / 75% /
 90% / 100%.
 
+## Two Stop-hook numbers that are not thresholds
+
+The Stop hook gives two prompts at most once a session. Their trigger points are
+judgement calls. Neither moves a zone or a verdict, and neither should be quoted
+as a finding.
+
+**The early nudge, 60K (`earlyNudge`).** 60K is still OPTIMAL and nothing
+measurable changes there. The number is the top of the 30–60K bracket in claim 1
+above, which is a reason to have picked it and not evidence of a boundary. What
+the prompt rests on is the policy rather than a figure: a context you never
+build needs no compaction, and the first zone warning, at 150K, arrives after
+the cheap moment to clear between tasks has usually passed.
+
+**The model tip (20 tool calls, 60% of them execution, 3 file edits).** Nothing
+to do with context quality. `opusplan` is Claude Code's own split, Opus in plan
+mode and Sonnet for execution, and the tip points at it when Opus is doing the
+second half. The three numbers were set against one developer's transcripts, 78
+Opus sessions with at least 20 tool calls:
+
+| Rule over the last 20 tool calls | Sessions it fires in | Median first fire |
+| :--- | ---: | ---: |
+| 60% edits or shell commands | 77 of 78 | call 20 |
+| …and at least 1 file edit | 64 of 78 | call 25 |
+| …and at least 3 file edits | 48 of 78 | call 32 |
+| …and at least 5 file edits | 30 of 78 | call 41 |
+
+The first row is why the share alone is useless: Bash is most of what any
+session does, exploring included, so it fires the moment the window fills. The
+edit floor is what separates "has started changing files" from "has used
+tools". Three was chosen over five to speak earlier at the cost of speaking
+more often. This is one person's sessions and a rule tuned on them — thin
+evidence, and the first thing to revisit if the tip nags.
+
 ## Other findings that change the advice
 
 From Chroma's 18-model study (194,480 LLM calls):
@@ -194,4 +227,4 @@ file, the most important instructions go near the top of `SKILL.md`.
 
 - Hong, Troynikov & Huber (2025). [Context Rot](https://www.trychroma.com/research/context-rot). Chroma.
 - Anthropic (2025). [Effective Context Engineering for AI Agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents).
-- Anthropic. [Explore the context window](https://code.claude.com/docs/en/context-window) · [Subagents](https://code.claude.com/docs/en/sub-agents)
+- Anthropic. [Explore the context window](https://code.claude.com/docs/en/context-window) · [Subagents](https://code.claude.com/docs/en/sub-agents) · [Model configuration](https://code.claude.com/docs/en/model-config) (`opusplan`)

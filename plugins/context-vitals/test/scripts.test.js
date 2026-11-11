@@ -55,12 +55,15 @@ function assistant(content, usage) {
 const usage = (t) => ({ input_tokens: t, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 5 });
 const user = (content) => ({ type: 'user', uuid: uuid(), cwd: 'X', message: { role: 'user', content } });
 
-/** A transcript whose measured headline is exactly `tokens`. */
-function transcript(dir, name, tokens, extra) {
+/** A transcript whose measured headline is exactly `tokens`. `model` moves every
+ *  assistant entry onto that model id, for the cases that turn on which model
+ *  did the work. */
+function transcript(dir, name, tokens, extra, model) {
   const entries = (extra || []).concat([
     user([{ type: 'text', text: T(50) }]),
     assistant([{ type: 'text', text: T(20) }], usage(tokens)),
   ]);
+  if (model) for (const e of entries) if (e.type === 'assistant') e.message.model = model;
   const file = path.join(dir, name);
   fs.writeFileSync(file, entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
   return file;
@@ -378,6 +381,286 @@ test('stop-nudge: every malformed stdin exits 0 without a stack trace', () => {
   }
 });
 
+// ── stop-nudge.js: the early nudge ───────────────────────────
+//
+// The first zone nudge is at 150K, late enough that it was never seen. The
+// early one sits well below it and is the gentlest thing the hook says, so the
+// risk is all on one side: said twice, or said to someone who asked for less.
+
+const stopPayload = (id, file, extra) =>
+  JSON.stringify(Object.assign({ session_id: id, transcript_path: file }, extra || {}));
+
+function withConfig(config) {
+  const data = tmpdir('cfg');
+  fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify(config));
+  return data;
+}
+
+test('stop-nudge: the early nudge fires once at the early mark, then never again', () => {
+  const dir = tmpdir('early');
+  const data = tmpdir('earlydata');
+  const f = transcript(dir, 'e.jsonl', 70000);
+
+  const first = nudgeOut(run(NUDGE, { input: stopPayload('e1', f), data }));
+  assert.ok(first, '70K is past the 60K default and must prompt');
+  assert.match(first.systemMessage, /Context Vitals/, 'it must say whose message it is');
+  assert.match(first.systemMessage, /70K in context/, 'the measured size, not a share of a guessed window');
+  assert.match(first.systemMessage, /60K early mark/, 'and which setting put it there');
+  assert.match(first.systemMessage, /Between tasks\? \/clear/);
+  assert.ok(!/WATCH|ACT/.test(first.systemMessage), 'it is not a zone warning and must not read as one');
+
+  for (const tokens of [70000, 90000, 140000]) {
+    const again = run(NUDGE, { input: stopPayload('e1', transcript(dir, tokens + '.jsonl', tokens)), data });
+    assert.strictEqual(again.stdout.trim(), '', tokens + ': once per session, however far it climbs');
+  }
+});
+
+test('stop-nudge: the early mark is configurable and has an off switch', () => {
+  const dir = tmpdir('earlycfg');
+  const at40 = transcript(dir, 'a.jsonl', 40000);
+  const at70 = transcript(dir, 'b.jsonl', 70000);
+
+  const low = nudgeOut(run(NUDGE, { input: stopPayload('c1', at40), data: withConfig({ earlyNudge: '30k' }) }));
+  assert.ok(low && /30K early mark/.test(low.systemMessage), 'a lower mark fires where the default would not');
+
+  const high = run(NUDGE, { input: stopPayload('c2', at70), data: withConfig({ earlyNudge: 100000 }) });
+  assert.strictEqual(high.stdout.trim(), '', 'a higher mark holds it back');
+
+  for (const off of [false, 0]) {
+    const res = run(NUDGE, { input: stopPayload('c3', at70), data: withConfig({ earlyNudge: off }) });
+    assert.strictEqual(res.stdout.trim(), '', JSON.stringify(off) + ' switches it off');
+  }
+
+  // Fails closed onto the default, like every other key: a typo must not
+  // quietly disable it, and must not make it fire on every first turn either.
+  for (const bad of ['sixty', 60, 'false', -5]) {
+    const res = nudgeOut(run(NUDGE, { input: stopPayload('c4', at70), data: withConfig({ earlyNudge: bad }) }));
+    assert.ok(res && /60K early mark/.test(res.systemMessage), JSON.stringify(bad) + ' must fall back to 60K');
+    const below = run(NUDGE, { input: stopPayload('c5', at40), data: withConfig({ earlyNudge: bad }) });
+    assert.strictEqual(below.stdout.trim(), '', JSON.stringify(bad) + ' must not fire below 60K');
+  }
+});
+
+test('stop-nudge: quiet and a raised minZone both silence the early nudge', () => {
+  const dir = tmpdir('earlyquiet');
+  const f = transcript(dir, 'q.jsonl', 70000);
+  assert.strictEqual(run(NUDGE, { input: stopPayload('q1', f), data: withConfig({ quiet: true }) }).stdout.trim(), '',
+    'quiet means quiet');
+  // "Only tell me at ACT and above" was not a request for a prompt below WATCH.
+  assert.strictEqual(run(NUDGE, { input: stopPayload('q2', f), data: withConfig({ minZone: 'act' }) }).stdout.trim(), '',
+    'a raised floor must not be undercut');
+  const dflt = nudgeOut(run(NUDGE, { input: stopPayload('q3', f), data: withConfig({ minZone: 'watch' }) }));
+  assert.ok(dflt, 'the default floor leaves it on');
+});
+
+test('stop-nudge: the zone nudges are untouched by the early one', () => {
+  const dir = tmpdir('earlyzone');
+  const data = tmpdir('earlyzonedata');
+  nudgeOut(run(NUDGE, { input: stopPayload('z1', transcript(dir, 'a.jsonl', 70000)), data }));
+  const watch = nudgeOut(run(NUDGE, { input: stopPayload('z1', transcript(dir, 'b.jsonl', 160000)), data }));
+  assert.ok(watch && /WATCH/.test(watch.systemMessage), 'WATCH still warns at 150K after an early nudge');
+  assert.ok(!/early mark/.test(watch.systemMessage), 'and is its own message');
+});
+
+test('stop-nudge: a zone nudge spends the early one, so a compaction cannot bring it back', () => {
+  const dir = tmpdir('earlyspent');
+  const data = tmpdir('earlyspentdata');
+  // Straight in at WATCH: the early mark was never announced on the way up.
+  const watch = nudgeOut(run(NUDGE, { input: stopPayload('s1', transcript(dir, 'a.jsonl', 160000)), data }));
+  assert.ok(watch && /WATCH/.test(watch.systemMessage));
+  // Then a compaction lands the session back between the mark and WATCH.
+  const after = run(NUDGE, { input: stopPayload('s1', transcript(dir, 'b.jsonl', 70000)), data });
+  assert.strictEqual(after.stdout.trim(), '', 'the stronger advice was already given');
+});
+
+test('stop-nudge: a session warned by an older version is not told it is OPTIMAL at WATCH', () => {
+  const dir = tmpdir('earlyold');
+  const data = tmpdir('earlyolddata');
+  // 1.3.0 state: a WATCH warning on record and no early flag at all.
+  fs.mkdirSync(path.join(data, 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(data, 'sessions', 'old1.json'),
+    JSON.stringify({ warnedSeverity: 1, lastTokens: 200000, lastZone: 'watch', pending: [] }));
+  const res = run(NUDGE, { input: stopPayload('old1', transcript(dir, 'a.jsonl', 200000)), data });
+  assert.strictEqual(res.stdout.trim(), '', 'the early nudge only speaks while the verdict is OPTIMAL');
+});
+
+test('stop-nudge: the once-per-session flags survive a turn with no reading', () => {
+  const dir = tmpdir('earlykeep');
+  const data = tmpdir('earlykeepdata');
+  const f = transcript(dir, 'a.jsonl', 70000);
+  assert.ok(nudgeOut(run(NUDGE, { input: stopPayload('k1', f), data })), 'early nudge given');
+
+  // pre-compact.js queues an announcement, and the next Stop has no transcript
+  // to read. That path rewrites the whole state file to clear the queue.
+  run(PRECOMPACT, { input: JSON.stringify({ session_id: 'k1', transcript_path: f, trigger: 'manual' }), data });
+  const blind = nudgeOut(run(NUDGE, { input: stopPayload('k1', path.join(dir, 'gone.jsonl')), data }));
+  assert.ok(blind && /snapshot written/.test(blind.systemMessage), 'the queued line is still delivered');
+
+  const state = JSON.parse(fs.readFileSync(path.join(data, 'sessions', 'k1.json'), 'utf8'));
+  assert.strictEqual(state.earlyNudged, true, 'the rewrite must carry the flag, or the nudge repeats');
+  assert.strictEqual(run(NUDGE, { input: stopPayload('k1', f), data }).stdout.trim(), '', 'and it does not repeat');
+});
+
+test('stop-nudge: with nowhere to record it, a once-only nudge is not given at all', () => {
+  const dir = tmpdir('earlyro');
+  // A data "directory" that is really a file: every state write fails. Without
+  // the flag on disk the nudge would come back on every single turn, which is
+  // worse than never hearing it.
+  const notADir = path.join(dir, 'data-is-a-file');
+  fs.writeFileSync(notADir, 'x');
+  const exec = toolCalls(['Edit', 'Edit', 'Edit', 'Edit', 'Bash', 'Bash', 'Bash', 'Bash', 'Bash', 'Bash',
+    'Bash', 'Bash', 'Bash', 'Bash', 'Read', 'Read', 'Read', 'Read', 'Read', 'Read']);
+  for (const [label, f] of [
+    ['early nudge', transcript(dir, 'a.jsonl', 70000)],
+    ['model tip', transcript(dir, 'b.jsonl', 40000, exec)],
+  ]) {
+    for (let turn = 1; turn <= 2; turn++) {
+      const res = run(NUDGE, { input: stopPayload('ro1', f), data: notADir });
+      assert.strictEqual(res.status, 0, label + ': exit code');
+      assert.strictEqual((res.stderr || '').trim(), '', label + ': no stack trace');
+      assert.strictEqual(res.stdout.trim(), '', label + ', turn ' + turn + ': silent rather than repeating');
+    }
+  }
+});
+
+// ── stop-nudge.js: the model tip ─────────────────────────────
+//
+// Opus left running through the execution half of a session. The tip counts
+// tool calls and reports the count; it is a prompt about cost, not a reading,
+// and it has to stay out of the way of anyone who is planning.
+
+/** One tool call per name, each with its result. */
+function toolCalls(names) {
+  const out = [];
+  names.forEach((name, i) => {
+    const id = 'tc-' + uuid();
+    out.push(assistant([{ type: 'tool_use', id, name, input: { description: 'step ' + i } }]));
+    out.push(user([{ type: 'tool_result', tool_use_id: id, content: 'ok' }]));
+  });
+  return out;
+}
+
+const times = (n, name) => new Array(n).fill(name);
+// 14 of 20 are edits or shell commands, 8 of them edits.
+const EXECUTING = times(8, 'Edit').concat(times(6, 'Bash'), times(6, 'Read'));
+
+test('stop-nudge: the model tip fires once when Opus is mostly executing', () => {
+  const dir = tmpdir('tip');
+  const data = tmpdir('tipdata');
+  const f = transcript(dir, 't.jsonl', 40000, toolCalls(EXECUTING));
+
+  const first = nudgeOut(run(NUDGE, { input: stopPayload('t1', f), data }));
+  assert.ok(first, 'twenty Opus tool calls, fourteen of them execution, must tip');
+  assert.match(first.systemMessage, /Context Vitals/, 'it must say whose message it is');
+  assert.match(first.systemMessage, /14 of the last 20 tool calls on Opus/, 'the count, as counted');
+  assert.match(first.systemMessage, /\/model opusplan/);
+  assert.match(first.systemMessage, /\/model sonnet/);
+
+  assert.strictEqual(run(NUDGE, { input: stopPayload('t1', f), data }).stdout.trim(), '', 'once per session');
+});
+
+test('stop-nudge: the model tip needs real edits, a full window and a clear majority', () => {
+  const dir = tmpdir('tipnot');
+  const cases = {
+    // Bash is most of any session, exploring included: on its own it only
+    // shows that Opus used tools, which is true of every session there is.
+    'shell only, no edits': times(20, 'Bash'),
+    'two edits is not yet a pattern': times(2, 'Edit').concat(times(18, 'Bash')),
+    'reading and searching': times(3, 'Edit').concat(times(8, 'Bash'), times(9, 'Read')),
+    'only nineteen calls so far': times(8, 'Edit').concat(times(11, 'Bash')),
+  };
+  for (const [label, names] of Object.entries(cases)) {
+    const f = transcript(dir, label.replace(/\W+/g, '-') + '.jsonl', 40000, toolCalls(names));
+    const res = run(NUDGE, { input: stopPayload('n-' + label, f) });
+    assert.strictEqual(res.stdout.trim(), '', label);
+  }
+
+  // The same windows, one call the other way, do tip: the boundaries are exact.
+  const edge = {
+    'three edits and twelve of twenty': times(3, 'Edit').concat(times(9, 'Bash'), times(8, 'Read')),
+    'the twentieth call': times(8, 'Edit').concat(times(12, 'Bash')),
+  };
+  for (const [label, names] of Object.entries(edge)) {
+    const f = transcript(dir, label.replace(/\W+/g, '-') + '.jsonl', 40000, toolCalls(names));
+    assert.ok(nudgeOut(run(NUDGE, { input: stopPayload('y-' + label, f) })), label);
+  }
+});
+
+test('stop-nudge: the model tip is only for Opus, and only for the model in use now', () => {
+  const dir = tmpdir('tipmodel');
+  const sonnet = transcript(dir, 's.jsonl', 40000, toolCalls(EXECUTING), 'claude-sonnet-5-5');
+  assert.strictEqual(run(NUDGE, { input: stopPayload('m1', sonnet) }).stdout.trim(), '', 'Sonnet is the advice, not the problem');
+
+  // Opus did the edits, then the session moved to Sonnet. The calls belong to a
+  // model no longer in use, so there is nothing left to suggest.
+  const moved = toolCalls(EXECUTING).concat(toolCalls(['Read']).map((e) => {
+    if (e.type === 'assistant') e.message.model = 'claude-sonnet-5-5';
+    return e;
+  }));
+  const switched = path.join(dir, 'sw.jsonl');
+  const tail = assistant([{ type: 'text', text: 'done' }], usage(40000));
+  tail.message.model = 'claude-sonnet-5-5';
+  fs.writeFileSync(switched, moved.concat([tail]).map((e) => JSON.stringify(e)).join('\n') + '\n');
+  assert.strictEqual(run(NUDGE, { input: stopPayload('m2', switched) }).stdout.trim(), '', 'a switch already made');
+
+  const opus = transcript(dir, 'o.jsonl', 40000, toolCalls(EXECUTING), 'claude-opus-5-5');
+  assert.ok(nudgeOut(run(NUDGE, { input: stopPayload('m3', opus) })), 'any Opus id counts, not one pinned version');
+});
+
+test('stop-nudge: the model tip has an off switch, and keeps out of plan mode', () => {
+  const dir = tmpdir('tipoff');
+  const f = transcript(dir, 't.jsonl', 40000, toolCalls(EXECUTING));
+
+  assert.strictEqual(run(NUDGE, { input: stopPayload('o1', f), data: withConfig({ modelTip: false }) }).stdout.trim(), '',
+    'modelTip: false switches it off');
+  assert.strictEqual(run(NUDGE, { input: stopPayload('o2', f), data: withConfig({ quiet: true }) }).stdout.trim(), '',
+    'quiet means quiet');
+  assert.strictEqual(run(NUDGE, { input: stopPayload('o3', f, { permission_mode: 'plan' }) }).stdout.trim(), '',
+    'plan mode is where Opus is meant to be');
+
+  // A quoted "false" is not a boolean, so the tip is still on. The report says so.
+  assert.ok(nudgeOut(run(NUDGE, { input: stopPayload('o4', f), data: withConfig({ modelTip: 'false' }) })),
+    'the setting fails closed');
+  // A raised minZone is about context size. It does not reach a tip about cost.
+  assert.ok(nudgeOut(run(NUDGE, { input: stopPayload('o5', f), data: withConfig({ minZone: 'act' }) })),
+    'minZone leaves the tip alone');
+});
+
+test('stop-nudge: one message a turn, and the one that waits is not lost', () => {
+  const dir = tmpdir('tiporder');
+  const data = tmpdir('tiporderdata');
+  // Past the early mark AND executing on Opus: both are owed.
+  const f = transcript(dir, 't.jsonl', 70000, toolCalls(EXECUTING));
+
+  const one = nudgeOut(run(NUDGE, { input: stopPayload('r1', f), data }));
+  assert.ok(one && /early mark/.test(one.systemMessage), 'the early nudge goes first');
+  assert.ok(!/model tip/.test(one.systemMessage), 'and goes alone');
+
+  const two = nudgeOut(run(NUDGE, { input: stopPayload('r1', f), data }));
+  assert.ok(two && /model tip/.test(two.systemMessage), 'the tip follows on the next turn');
+  assert.ok(!/early mark/.test(two.systemMessage));
+
+  assert.strictEqual(run(NUDGE, { input: stopPayload('r1', f), data }).stdout.trim(), '', 'then nothing');
+
+  // A zone warning outranks the tip the same way.
+  const zdata = tmpdir('tipzonedata');
+  const z = transcript(dir, 'z.jsonl', 400000, toolCalls(EXECUTING));
+  const warn = nudgeOut(run(NUDGE, { input: stopPayload('r2', z), data: zdata }));
+  assert.ok(warn && /ACT/.test(warn.systemMessage) && !/model tip/.test(warn.systemMessage), 'the warning first');
+  const tip = nudgeOut(run(NUDGE, { input: stopPayload('r2', z), data: zdata }));
+  assert.ok(tip && /model tip/.test(tip.systemMessage), 'the tip after it');
+});
+
+test('stop-nudge: a hostile model id never reaches the tip', () => {
+  const dir = tmpdir('tiphostile');
+  // The id is matched, not printed, so there is nothing to sanitise.
+  const f = transcript(dir, 'h.jsonl', 40000, toolCalls(EXECUTING), 'claude-opus-5' + ESC + '[31m```');
+  const res = run(NUDGE, { input: stopPayload('h1', f) });
+  assert.ok(nudgeOut(res), 'it still matches as Opus');
+  assert.ok(!res.stdout.includes(ESC) && !res.stdout.includes('\\u001b'), 'no escape, raw or JSON-encoded');
+  assert.ok(!res.stdout.includes('```'), 'no fence-breaking backticks');
+});
+
 // ── pre-compact.js ───────────────────────────────────────────
 
 test('pre-compact: writes a snapshot and queues the announcement for the Stop hook', () => {
@@ -477,11 +760,29 @@ test('context-report: a setting that will be ignored is named in the report', ()
   assert.ok(Array.isArray(j.configIssues) && j.configIssues.length === 3, 'and the JSON carries them too');
 });
 
+test('context-report: a rejected earlyNudge or modelTip is named, inside the column budget', () => {
+  const dir = tmpdir('cfgnew');
+  const data = tmpdir('cfgnewdata');
+  const f = transcript(dir, 'c.jsonl', 400000);
+  // The earlyNudge message is the longest config row there is, so it is the
+  // one that proves the wrap rather than the one that happens to fit.
+  fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ earlyNudge: 'sixty', modelTip: 'false' }));
+
+  const out = run(REPORT, { args: ['--transcript', f, '--data-dir', data], data }).stdout;
+  assert.ok(out.includes('earlyNudge: "sixty"'), 'the rejected value is named');
+  assert.ok(out.includes('modelTip: "false"'), 'and so is the quoted boolean');
+  assert.strictEqual((out.match(/^ +config /gm) || []).length, 2, 'one METHOD row per ignored setting');
+  for (const line of out.split('\n')) {
+    assert.ok(width(line) <= 72, 'over 72 columns (' + width(line) + '): ' + line);
+  }
+});
+
 test('context-report: a valid config adds no rows at all', () => {
   const dir = tmpdir('cfgok');
   const data = tmpdir('cfgokdata');
   const f = transcript(dir, 'c.jsonl', 400000);
-  fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ quiet: false, minZone: 'act' }));
+  fs.writeFileSync(path.join(data, 'config.json'),
+    JSON.stringify({ quiet: false, minZone: 'act', earlyNudge: '45k', modelTip: false }));
   const out = run(REPORT, { args: ['--transcript', f, '--data-dir', data], data }).stdout;
   assert.strictEqual((out.match(/^ +config /gm) || []).length, 0, 'silence when there is nothing wrong');
 });

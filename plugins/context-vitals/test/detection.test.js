@@ -331,6 +331,82 @@ test('configIssues describes a non-scalar without dumping it', () => {
   });
 });
 
+// ── The early nudge and model tip settings ───────────────────
+
+test('parseTokenCount reads a threshold, and refuses anything under 1000', () => {
+  assert.strictEqual(lib.parseTokenCount(60000), 60000);
+  assert.strictEqual(lib.parseTokenCount('60000'), 60000);
+  assert.strictEqual(lib.parseTokenCount('60k'), 60000);
+  assert.strictEqual(lib.parseTokenCount(' 60K '), 60000);
+  assert.strictEqual(lib.parseTokenCount('0.1M'), 100000);
+  // parseWindow would read 120 as 120K while 60 stayed sixty tokens. A
+  // threshold has no such convention, so neither is accepted.
+  for (const bad of [60, 120, 999, '60', 0, -60000, NaN, Infinity, '', 'sixty', '60kk', null, undefined, true, [], {}]) {
+    assert.strictEqual(lib.parseTokenCount(bad), null, JSON.stringify(bad) + ' must be refused');
+  }
+});
+
+test('earlyNudgeAt defaults to 60K, takes a count, and switches off on false or 0', () => {
+  assert.strictEqual(lib.EARLY_NUDGE_DEFAULT, 60000);
+  for (const cfg of [undefined, null, {}, { earlyNudge: null }, { earlyNudge: true }]) {
+    assert.strictEqual(lib.earlyNudgeAt(cfg), 60000, JSON.stringify(cfg) + ' is the default');
+  }
+  assert.strictEqual(lib.earlyNudgeAt({ earlyNudge: '45k' }), 45000);
+  assert.strictEqual(lib.earlyNudgeAt({ earlyNudge: 80000 }), 80000);
+  assert.strictEqual(lib.earlyNudgeAt({ earlyNudge: false }), null);
+  assert.strictEqual(lib.earlyNudgeAt({ earlyNudge: 0 }), null);
+  // Unusable values fall back to the default, never to off: a typo must not
+  // silently disable the nudge.
+  for (const bad of ['false', 'off', 60, -1, [], {}]) {
+    assert.strictEqual(lib.earlyNudgeAt({ earlyNudge: bad }), 60000, JSON.stringify(bad));
+  }
+});
+
+test('modelTipOn is off only for a real false', () => {
+  assert.strictEqual(lib.modelTipOn({ modelTip: false }), false);
+  for (const cfg of [undefined, null, {}, { modelTip: true }, { modelTip: null }, { modelTip: 'false' }, { modelTip: 0 }]) {
+    assert.strictEqual(lib.modelTipOn(cfg), true, JSON.stringify(cfg));
+  }
+});
+
+test('configIssues accepts every valid earlyNudge and modelTip without comment', () => {
+  for (const config of [
+    { earlyNudge: 60000, modelTip: true },
+    { earlyNudge: '45k', modelTip: false },
+    { earlyNudge: false }, { earlyNudge: 0 }, { earlyNudge: true }, { earlyNudge: null, modelTip: null },
+  ]) {
+    withState({ config }, () => {
+      assert.deepStrictEqual(lib.configIssues(), [], JSON.stringify(config));
+    });
+  }
+});
+
+test('configIssues names a rejected earlyNudge or modelTip and what is in force', () => {
+  withState({ config: { earlyNudge: 'sixty', modelTip: 'false' } }, () => {
+    const got = lib.configIssues();
+    assert.strictEqual(got.length, 2, got.join(' | '));
+    assert.match(got[0], /^earlyNudge: "sixty" ignored.*early nudge is at 60K$/);
+    assert.match(got[1], /^modelTip: "false" ignored.*model tip is still on$/);
+  });
+  // The likeliest slip: thousands, as contextWindow would take them.
+  withState({ config: { earlyNudge: 60 } }, () => {
+    assert.match(lib.configIssues()[0], /^earlyNudge: 60 ignored.*early nudge is at 60K$/);
+  });
+});
+
+test('configIssues says when a valid earlyNudge can never fire', () => {
+  // Not wrong, and still a setting that does nothing: the early nudge only
+  // speaks in OPTIMAL, which ends at 150K.
+  withState({ config: { earlyNudge: 150000 } }, () => {
+    const got = lib.configIssues();
+    assert.strictEqual(got.length, 1, got.join(' | '));
+    assert.match(got[0], /^earlyNudge: 150000 never fires.*150K.*no early nudge$/);
+  });
+  withState({ config: { earlyNudge: 149999 } }, () => {
+    assert.deepStrictEqual(lib.configIssues(), [], 'one token below WATCH still has room to fire');
+  });
+});
+
 // ── Session state ────────────────────────────────────────────
 //
 // One implementation, because both hooks address the same file: stop-nudge.js

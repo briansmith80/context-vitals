@@ -207,6 +207,37 @@ that is how you tell it from your other Stop hooks. The advice follows whichever
 reading bound the verdict: rebuild from notes for absolute size, compact while
 the choice is still yours for pressure.
 
+**Two gentler prompts, at most once a session each.** Neither is a zone, and
+neither changes a verdict.
+
+The first zone warning is at 150K, and by then the cheap moment to clear has
+usually gone. So the first time a session passes 60K while still OPTIMAL, it
+asks once. Move the mark with `earlyNudge`:
+
+```text
+Stop says: 🟢 Context Vitals · 70K in context · OPTIMAL, past the 60K early mark
+   → Between tasks? /clear. Mid-task, carry on.
+```
+
+And when the model in use is Opus and its last 20 tool calls are mostly
+execution — 12 or more of them edits or shell commands, at least 3 of those file
+edits — it points at the cheaper way to finish. Switch it off with `modelTip`:
+
+```text
+Stop says: 💡 Context Vitals · model tip
+   14 of the last 20 tool calls on Opus were edits or shell commands.
+   → Plan done? Try /model opusplan, or /model sonnet.
+```
+
+That count is read from the transcript; whether the plan really is done is your
+call, not the plugin's. It says nothing in plan mode. Typing `/model <name>`
+also saves that model as your default — open `/model` on its own and press `s`
+to switch for this session only.
+
+Only one message a turn: a zone warning goes first, then the early nudge, then
+the tip, and whichever waits is given on a later turn. A zone warning also spends
+the early nudge, since every zone's advice is the stronger version of it.
+
 ### PreCompact snapshots — recovery when it goes lossy
 
 Before any compaction, writes a markdown snapshot of what was in context: size,
@@ -281,15 +312,19 @@ installed or inline.
 {
   "quiet": false,
   "minZone": "watch",
-  "contextWindow": null
+  "contextWindow": null,
+  "earlyNudge": 60000,
+  "modelTip": true
 }
 ```
 
 | Key | Effect |
 | :-- | :----- |
-| `quiet` | `true` silences the Stop-hook zone nudges. `/context-check`, snapshots and post-compaction announcements still work. |
-| `minZone` | Lowest zone allowed to nudge: `watch` (default), `act`, `degraded`, `critical`. `act` means "only when there is something to do". |
+| `quiet` | `true` silences every Stop-hook nudge: the zones, the early nudge and the model tip. `/context-check`, snapshots and post-compaction announcements still work. |
+| `minZone` | Lowest zone allowed to nudge: `watch` (default), `act`, `degraded`, `critical`. `act` means "only when there is something to do". Anything above `watch` silences the early nudge too. |
 | `contextWindow` | Override window detection. Accepts `1000000`, `"1M"`, `"400k"`. `null` auto-detects. |
+| `earlyNudge` | Token count at which the once-a-session "between tasks? `/clear`" prompt fires. Default `60000`; `"60k"` works too. `false` turns it off. At `150000` or above it never fires, because WATCH takes over there. |
+| `modelTip` | `false` turns off the once-a-session tip that Opus is being used for execution. |
 
 Every key fails closed, and **`/context-check` names anything it had to ignore** —
 a quoted `"true"`, a misspelled zone, or a missing comma reverts to the defaults
@@ -356,6 +391,8 @@ precisely the moment the Stop hook fires.
 - **Some attachments are ephemeral.** System reminders injected for one turn are counted as though they persist, so that row can overstate slightly. It does not affect the measured headline.
 - **The estimate can over-attribute.** Dense JSON tool output tokenises well below 4 chars/token, so the attributed total sometimes exceeds the measured one. When that happens the report says so, and the percentages become shares of the estimate.
 - **The transcript is chosen, not handed over.** `/context-check` has to find it, and reports no reading rather than guessing if it cannot. Pass `--session` or `--transcript` to pin it.
+- **The model tip is a tally, not a judgement.** It counts tool calls by name and cannot tell a `Bash` that explores from one that executes, which is why it also wants file edits before it speaks. It reads the same 512KB tail as the rest of the Stop hook, so after a very large tool result fewer than 20 calls may be in view and it stays silent. It knows Opus only by the model id in the transcript, and it does not see your effort level.
+- **Neither once-a-session prompt is a research threshold.** The 60K early mark and the tip's 20 / 12 / 3 are judgement calls; [`thresholds.md`](plugins/context-vitals/skills/context-check/reference/thresholds.md) says where each came from.
 - **Subagent context is not counted.** Sidechains have their own windows. What a subagent *returns* lands in the parent transcript as an ordinary tool result and is counted there.
 - **Readings after a compaction cover the post-compaction context only.** Claude Code appends a `compact_boundary` rather than truncating, so the plugin counts only what is still live — otherwise percentages run past 100% and "prune candidates" names results already gone. `/context-check` says how many compactions a session has been through.
 

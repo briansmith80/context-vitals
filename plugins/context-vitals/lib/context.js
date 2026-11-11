@@ -65,6 +65,30 @@ const PRESSURE_ZONES = [
 
 const SEVERITY = { optimal: 0, watch: 1, act: 2, degraded: 3, critical: 4 };
 
+// The two Stop-hook prompts that are NOT zones. Neither number below comes from
+// the research the zones rest on, and neither changes a verdict: they decide
+// only when a once-per-session reminder is worth one line. thresholds.md says
+// the same, so nobody reads them as measurements.
+
+// Where the early "between tasks? /clear" prompt fires, in absolute tokens.
+// The first zone nudge is at 150K, by which point the cheap moment to clear has
+// usually gone. Configurable as `earlyNudge`.
+const EARLY_NUDGE_DEFAULT = 60000;
+
+// The model tip judges what the current model has been doing from its last
+// ACTIVITY_WINDOW tool calls: at least EXECUTION_SHARE of them edits or shell
+// commands, and at least EXECUTION_MIN_EDITS of them actual file edits.
+//
+// The edit floor is the half that does the work. Checked against 78 real Opus
+// sessions, the share alone held in 77 of them by the 20th tool call, because
+// Bash is most of what any session does, exploring included. It says "Opus has
+// used tools", not "Opus is executing". Requiring three edits cut that to 48.
+const ACTIVITY_WINDOW = 20;
+const EXECUTION_SHARE = 0.6;
+const EXECUTION_MIN_EDITS = 3;
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
+
 // ── Small helpers ────────────────────────────────────────────
 
 // C0 and C1 control characters, minus tab/newline/carriage-return which the
@@ -232,17 +256,59 @@ function describeValue(v) {
   return safe(String(v), 30);
 }
 
-const CONFIG_KEYS = ['quiet', 'minZone', 'contextWindow'];
+const CONFIG_KEYS = ['quiet', 'minZone', 'contextWindow', 'earlyNudge', 'modelTip'];
+
+/**
+ * A token count for a threshold: 60000, "60000", "60k", "0.1M".
+ *
+ * Deliberately not parseWindow. That reads a bare 100-1000 as thousands,
+ * because Claude Code does for a window; for a threshold it would make 120 mean
+ * 120K while 60 meant sixty tokens. Anything under 1000 is rejected instead, so
+ * a bare `60` is reported as ignored rather than firing on every first turn.
+ */
+function parseTokenCount(value) {
+  let n;
+  if (typeof value === 'number') {
+    n = value;
+  } else if (typeof value === 'string') {
+    const m = /^(\d+(?:\.\d+)?)\s*([km]?)$/.exec(value.trim().toLowerCase());
+    if (!m) return null;
+    n = parseFloat(m[1]) * (m[2] === 'k' ? 1000 : m[2] === 'm' ? 1000000 : 1);
+  } else {
+    return null;
+  }
+  return isFinite(n) && n >= 1000 ? Math.round(n) : null;
+}
+
+/**
+ * Where the early nudge fires, or null when it is switched off.
+ *
+ * `false` and `0` are the off switch. Anything unusable falls back to the
+ * default rather than to off: every other key fails closed onto its default,
+ * and a typo silently disabling a nudge is the failure configIssues() exists to
+ * stop.
+ */
+function earlyNudgeAt(cfg) {
+  const v = cfg ? cfg.earlyNudge : undefined;
+  if (v === false || v === 0) return null;
+  return parseTokenCount(v) || EARLY_NUDGE_DEFAULT;
+}
+
+/** The model tip is on unless it is switched off with a real boolean. */
+function modelTipOn(cfg) {
+  return !(cfg && cfg.modelTip === false);
+}
 
 /**
  * Describe anything in config.json that is going to be ignored.
  *
  * Every setting here fails closed, which is the right behaviour and the wrong
  * silence: an unparseable `contextWindow` falls through to detection, an
- * unknown `minZone` falls back to watch, `quiet` counts only as a real boolean
- * (so `"quiet": "true"` does nothing), and a config file with a missing comma
- * reverts every setting at once. In all four cases the user is left believing a
- * setting is in force. The report says so instead of guessing on their behalf.
+ * unknown `minZone` falls back to watch, `quiet` and `modelTip` count only as
+ * real booleans (so `"quiet": "true"` does nothing), an unusable `earlyNudge`
+ * falls back to its default, and a config file with a missing comma reverts
+ * every setting at once. In each case the user is left believing a setting is
+ * in force. The report says so instead of guessing on their behalf.
  *
  * Returns [] when there is no config file — the overwhelmingly common case, and
  * not a problem.
@@ -281,6 +347,29 @@ function configIssues() {
       out.push('contextWindow: ' + describeValue(cfg.contextWindow)
         + ' ignored, expected 1000000, "1M" or "400k", so the window is being detected');
     }
+  }
+
+  // `true` is accepted quietly: it reads as "on", and on is the default.
+  if (has('earlyNudge') && cfg.earlyNudge !== null && cfg.earlyNudge !== true
+    && cfg.earlyNudge !== false && cfg.earlyNudge !== 0) {
+    const at = parseTokenCount(cfg.earlyNudge);
+    const watchAt = DEGRADATION_ZONES[0].max;
+    if (!at) {
+      out.push('earlyNudge: ' + describeValue(cfg.earlyNudge)
+        + ' ignored, expected a token count such as 60000 or "60k", or false unquoted'
+        + ' to turn it off, so the early nudge is at ' + fmt(EARLY_NUDGE_DEFAULT));
+    } else if (at >= watchAt) {
+      // Valid, and still a setting that does nothing: the early nudge only
+      // speaks in the OPTIMAL zone, and that ends where WATCH begins.
+      out.push('earlyNudge: ' + describeValue(cfg.earlyNudge)
+        + ' never fires, the WATCH nudge takes over at ' + fmt(watchAt)
+        + ', so there is no early nudge');
+    }
+  }
+
+  if (has('modelTip') && cfg.modelTip !== null && typeof cfg.modelTip !== 'boolean') {
+    out.push('modelTip: ' + describeValue(cfg.modelTip)
+      + ' ignored, expected true or false unquoted, so the model tip is still on');
   }
 
   for (const k of Object.keys(cfg)) {
@@ -672,6 +761,55 @@ function analyse(entries) {
   return { breakdown, topConsumers, rereads, assistantTurns, consumerCount: consumers.length };
 }
 
+/**
+ * What the model now in use has been doing, counted over its most recent tool
+ * calls. Feeds the Stop hook's model tip.
+ *
+ * Counted, not inferred: the caller reports "N of the last M tool calls were
+ * edits or shell commands" and nothing softer. The walk runs backwards and
+ * stops at a model switch, so a session that has just moved to another model is
+ * never judged on calls the previous one made. That is also what keeps the tip
+ * quiet under `opusplan`, where the executing turns are recorded as Sonnet.
+ *
+ * Claude Code writes its own notices (an API error, an interrupted turn) as
+ * assistant entries whose model is the placeholder `<synthetic>`. Those are
+ * skipped rather than read as a switch.
+ */
+function recentActivity(entries) {
+  let model = null;
+  let calls = 0;
+  let edits = 0;
+  let shell = 0;
+
+  for (let i = entries.length - 1; i >= 0 && calls < ACTIVITY_WINDOW; i--) {
+    const e = entries[i];
+    if (e.type !== 'assistant' || e.isSidechain) continue;
+    const m = e.message && e.message.model;
+    if (typeof m !== 'string' || !m || m.charAt(0) === '<') continue;
+    if (model === null) model = m;
+    else if (m !== model) break;
+
+    const blocks = blocksOf(e);
+    for (let j = blocks.length - 1; j >= 0 && calls < ACTIVITY_WINDOW; j--) {
+      const b = blocks[j];
+      if (!b || typeof b !== 'object' || b.type !== 'tool_use') continue;
+      calls++;
+      if (EDIT_TOOLS.has(b.name)) edits++;
+      else if (SHELL_TOOLS.has(b.name)) shell++;
+    }
+  }
+
+  return { model, calls, edits, shell };
+}
+
+/** Whether that activity reads as execution. The numbers are judgement calls,
+ *  argued where they are defined; a short window is never enough to say. */
+function isMostlyExecution(a) {
+  return !!a && a.calls >= ACTIVITY_WINDOW
+    && (a.edits + a.shell) / a.calls >= EXECUTION_SHARE
+    && a.edits >= EXECUTION_MIN_EDITS;
+}
+
 // ── Zone classification ──────────────────────────────────────
 
 function classify(zones, value) {
@@ -795,6 +933,10 @@ function report(transcriptPath, opts) {
     zonesAgree: !pressureZone || degradationZone.key === pressureZone.key,
   };
 
+  // Opt-in, because only the Stop hook's model tip reads it and it stops asking
+  // once the tip has been given. Same entries, no second read of the file.
+  if (opts && opts.activity) out.activity = recentActivity(slice.live);
+
   if (deep) {
     // Only what is still in context: counting compacted-away entries against a
     // post-compaction measured total is what made this breakdown nonsense.
@@ -826,7 +968,9 @@ function zoneOut(z) {
 
 module.exports = {
   report, parseWindow, dataDir, setDataDir, readPluginConfig, userSettings, pruneDir, safe, fmt,
-  configIssues,
+  configIssues, earlyNudgeAt, modelTipOn, parseTokenCount,
+  recentActivity, isMostlyExecution,
+  EARLY_NUDGE_DEFAULT, ACTIVITY_WINDOW, EXECUTION_SHARE, EXECUTION_MIN_EDITS,
   sessionKey, sessionsDir, sessionStateFile, readSessionState, writeSessionState, pendingOf,
   DEGRADATION_ZONES, PRESSURE_ZONES, SEVERITY, AUTOCOMPACT_HEADROOM, TAIL_BYTES, MAX_TAIL_BYTES,
   // Exported for tests: pure functions over parsed transcript entries.

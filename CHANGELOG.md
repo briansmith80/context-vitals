@@ -12,6 +12,51 @@ the version reaches nobody. Every version that ships gets an entry here, and the
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-11
+
+### Added
+
+- **An early nudge, well below the first zone.** The first zone warning is at
+  150K, which is late enough that the cheap moment to clear has usually gone. The
+  first time a session passes 60K while still OPTIMAL, the Stop hook now asks
+  once: *between tasks? `/clear`*. It names the measured size and the mark that
+  triggered it, and nothing else — no share of a window it may only have guessed.
+
+  The mark is `earlyNudge` in `config.json`: a token count (`60000`, `"60k"`), or
+  `false` to turn it off. It fires at most once a session. A zone warning spends
+  it, so a compaction cannot bring it back after stronger advice was given, and a
+  `minZone` above `watch` silences it, because asking to hear nothing below ACT
+  was not a request for a prompt below WATCH.
+
+- **A model tip when Opus is doing the execution.** When the model in use is
+  Opus and its last 20 tool calls are mostly execution — at least 12 edits or
+  shell commands, 3 or more of them file edits — the Stop hook says so once and
+  points at `/model opusplan` or `/model sonnet`. It reports the count it took
+  and leaves the judgement to you. It stays out of plan mode, stops at a model
+  switch so it never judges one model on another's calls, and is switched off
+  with `"modelTip": false`.
+
+  The file-edit floor is the half that matters. Against 78 real Opus sessions
+  the 60% share on its own held in 77 of them by the 20th call, because Bash is
+  most of what any session does; requiring three edits cut that to 48.
+  `thresholds.md` has the table, and says plainly that these are judgement
+  calls tuned on one person's transcripts, not research thresholds.
+
+- **`/context-check` names a rejected `earlyNudge` or `modelTip`**, like every
+  other key: a quoted `"false"`, an `earlyNudge` written in thousands (`60`), and
+  an `earlyNudge` at 150K or above, which is valid and can never fire.
+
+### Changed
+
+- **`quiet` now means every Stop-hook nudge**: the zones, the early nudge and the
+  model tip. Compaction announcements are still delivered.
+- **Only one message a turn.** A zone warning goes first, then the early nudge,
+  then the model tip; whichever waits is given on a later turn rather than lost.
+- **A once-a-session prompt is not given at all if its flag cannot be saved.**
+  With an unwritable data directory the flag would be missing next turn and the
+  same line would return on every turn after it. The zone warnings keep their
+  existing trade, where a lost write costs one extra warning.
+
 ## [1.3.0] - 2026-08-20
 
 ### Changed

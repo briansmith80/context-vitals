@@ -80,15 +80,23 @@ of its own. Create the file if it is absent.
 {
   "quiet": false,
   "minZone": "watch",
-  "contextWindow": null
+  "contextWindow": null,
+  "earlyNudge": 60000,
+  "modelTip": true
 }
 ```
 
 | Key | Effect |
 | :--- | :--- |
-| `quiet` | `true` silences the per-turn Stop nudges entirely. `/context-check` and the PreCompact snapshot still work, and a compaction announcement is still delivered. |
-| `minZone` | Lowest zone that may nudge: `watch` (default), `act`, `degraded`, `critical`. Use `act` for "only tell me when there is something to do". |
+| `quiet` | `true` silences the per-turn Stop nudges entirely, the early nudge and the model tip included. `/context-check` and the PreCompact snapshot still work, and a compaction announcement is still delivered. |
+| `minZone` | Lowest zone that may nudge: `watch` (default), `act`, `degraded`, `critical`. Use `act` for "only tell me when there is something to do". Anything above `watch` also silences the early nudge. |
 | `contextWindow` | Override the detected context window when detection is wrong. Accepts `1000000`, `"1M"`, `"400k"`. `null` means auto-detect. |
+| `earlyNudge` | Token count at which the once-a-session "between tasks? `/clear`" prompt fires, while the session is still OPTIMAL. Default `60000`; `"60k"` works too. `false` turns it off. A bare `60` is rejected rather than read as thousands, and `150000` or more never fires because WATCH takes over there. |
+| `modelTip` | `false` turns off the once-a-session tip that Opus is being used for execution (`/model opusplan` or `/model sonnet`). Unquoted, like `quiet`. |
+
+The early nudge and the model tip are prompts, not readings: neither moves a
+zone or a verdict. If the user asks why 60K, say it is a chosen habit mark and
+point at `thresholds.md` rather than presenting it as a measured boundary.
 
 Set `contextWindow` only if the user reports the window in `/context-check`
 disagrees with `/context`, or if `windowConfident` was `false`. Detection reads
@@ -101,5 +109,6 @@ Changes take effect on the next turn — no restart needed.
 Every key fails closed and `/context-check` reports anything it ignored, so if
 the user says a setting did nothing, run the report and read the `config` rows
 in `METHOD` before changing anything else. The usual causes are a quoted
-boolean (`"quiet": "true"`), a case-mismatched key (`minzone`), and a config
-file with a trailing comma, which reverts every setting at once.
+boolean (`"quiet": "true"`, `"modelTip": "false"`), a case-mismatched key
+(`minzone`), an `earlyNudge` given in thousands (`60`), and a config file with a
+trailing comma, which reverts every setting at once.
